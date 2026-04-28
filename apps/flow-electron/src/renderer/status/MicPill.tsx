@@ -72,19 +72,17 @@ export function MicPill({ state, level, error, handsFree, onStop, onCancel }: Pr
 }
 
 function Bars({ level, active }: { level: number; active: boolean }) {
-  // Five bars whose height responds to the live mic level. Each bar
-  // gets a phase offset so they shimmer instead of moving in lockstep —
-  // pure cosmetic, but it reads as "alive" the way a single bar does
-  // not. Heights are clamped to a minimum of 4 px so the pill doesn't
-  // look dead when the user pauses mid-sentence.
-  const phases = [0, 0.18, 0.36, 0.54, 0.72]
-  const t = (Date.now() % 1000) / 1000
+  // Keep the visualization tied to the actual meter value. The earlier version
+  // added a sine-wave shimmer and CSS transitions on top of the audio envelope;
+  // it looked alive, but it also made the pill feel delayed and sometimes
+  // disconnected from speech. These fixed weights give a voice-like shape
+  // without inventing motion the microphone did not report.
+  const weights = [0.45, 0.75, 1, 0.7, 0.5]
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 3, height: 18 }}>
-      {phases.map((p, i) => {
-        const wave = active ? Math.abs(Math.sin((t + p) * Math.PI * 2)) : 0
-        const v = active ? Math.max(level, 0.12) * (0.55 + 0.45 * wave) : 0.05
-        const h = Math.max(4, Math.round(v * 18))
+      {weights.map((weight, i) => {
+        const responsive = active ? Math.max(level, 0.08) * weight : 0.04
+        const h = Math.max(3, Math.round(responsive * 18))
         return (
           <span
             key={i}
@@ -93,7 +91,7 @@ function Bars({ level, active }: { level: number; active: boolean }) {
               height: h,
               background: active ? 'var(--accent)' : 'var(--ink-mute)',
               borderRadius: 2,
-              transition: 'height 80ms ease-out',
+              transition: 'height 28ms linear',
             }}
           />
         )

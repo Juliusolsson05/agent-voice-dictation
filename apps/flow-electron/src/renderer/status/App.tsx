@@ -34,6 +34,7 @@ export function App() {
   const audioCtxRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const rafRef = useRef<number | null>(null)
+  const levelRef = useRef(0)
 
   const stopMeter = useCallback(() => {
     if (rafRef.current !== null) {
@@ -41,6 +42,8 @@ export function App() {
       rafRef.current = null
     }
     analyserRef.current = null
+    levelRef.current = 0
+    setLevel(0)
     if (audioCtxRef.current) {
       void audioCtxRef.current.close()
       audioCtxRef.current = null
@@ -48,16 +51,17 @@ export function App() {
   }, [])
 
   const startMeter = useCallback((stream: MediaStream) => {
-    // AudioContext + AnalyserNode is the cheapest accurate level
-    // meter. The first pass used raw peak amplitude, which looked
-    // nearly flat on built-in Mac microphones because normal speech
-    // often sits in a small fraction of full-scale PCM. We combine RMS
-    // and peak and apply visual gain here. This affects only the HUD,
-    // never the recorded audio sent to STT.
+    // AudioContext + AnalyserNode is the cheapest accurate local meter. This is
+    // only a visual affordance; Deepgram is the actual speech source of truth.
+    // The meter needs to feel immediate, so we avoid heavy smoothing and use an
+    // asymmetric envelope: very fast attack when speech starts, slower release
+    // when speech drops. That tracks syllables without flickering off between
+    // words.
     const ctx = new AudioContext()
     const src = ctx.createMediaStreamSource(stream)
     const analyser = ctx.createAnalyser()
-    analyser.fftSize = 1024
+    analyser.fftSize = 512
+    analyser.smoothingTimeConstant = 0
     src.connect(analyser)
     audioCtxRef.current = ctx
     analyserRef.current = analyser
@@ -74,9 +78,14 @@ export function App() {
         if (v > peak) peak = v
       }
       const rms = Math.sqrt(sum / data.length)
-      const signal = Math.min(1, Math.max(peak * 2.8, rms * 7.5))
-      // Slight smoothing — dampens jitter on quiet input.
-      setLevel(prev => prev * 0.55 + signal * 0.45)
+      const rawSignal = Math.max(peak * 2.2, rms * 11)
+      const gatedSignal = rawSignal < 0.025 ? 0 : rawSignal
+      const signal = Math.min(1, gatedSignal)
+      const previous = levelRef.current
+      const attack = signal > previous ? 0.82 : 0.26
+      const next = previous + (signal - previous) * attack
+      levelRef.current = next
+      setLevel(next)
       rafRef.current = requestAnimationFrame(tick)
     }
     rafRef.current = requestAnimationFrame(tick)
