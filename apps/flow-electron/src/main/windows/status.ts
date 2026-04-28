@@ -18,6 +18,16 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const PILL_WIDTH = 220
 const PILL_HEIGHT = 56
 const HIDE_ANIMATION_MS = 150
+// macOS Space transitions take ~500ms. If the user enters fullscreen and
+// then triggers the hotkey within that window, our showInactive() commits
+// while the window server is still re-binding the window to the new
+// Space — alwaysOnTop and visibleOnAllWorkspaces are correct in our state
+// but not yet honored by the window server. Reasserting one frame later
+// catches the race. 60ms is empirical: long enough that the window server
+// has stabilized, short enough that the user does not perceive it as a
+// flicker. We log when the kick changes anything observable so future
+// disappearances can be diagnosed from traces alone.
+const OVERLAY_REASSERT_KICK_MS = 60
 
 let status: BrowserWindow | null = null
 let hideGeneration = 0
@@ -38,10 +48,57 @@ function defaultPosition(): { x: number; y: number } {
   }
 }
 
+function isPositionOnVisibleDisplay(pos: { x: number; y: number }): boolean {
+  // The pill anchors at (pos.x, pos.y); the window extends to
+  // (pos.x + PILL_WIDTH, pos.y + PILL_HEIGHT). Treat the position as
+  // visible only if the window's center sits inside any current display's
+  // work area — the bare top-left can be on-screen while the rest spills
+  // off the edge of an external monitor that has since disconnected.
+  const cx = pos.x + PILL_WIDTH / 2
+  const cy = pos.y + PILL_HEIGHT / 2
+  for (const display of screen.getAllDisplays()) {
+    const { x, y, width, height } = display.workArea
+    if (cx >= x && cx <= x + width && cy >= y && cy <= y + height) return true
+  }
+  return false
+}
+
+function reassertOverlayState(reason: string): void {
+  // Single source of truth for the "this window is an overlay" state.
+  // Both the initial show and the kick reassert call this — keeping the
+  // calls symmetric ensures any future addition (e.g. a new collection
+  // behavior flag) lands in both code paths automatically.
+  if (!status || status.isDestroyed()) return
+  status.setAlwaysOnTop(true, 'screen-saver')
+  status.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  status.moveTop()
+  // eslint-disable-next-line no-console
+  console.log('[status:overlay] reassert', {
+    reason,
+    isVisible: status.isVisible(),
+    bounds: status.getBounds(),
+  })
+}
+
 export async function createStatusWindow(): Promise<BrowserWindow> {
   if (status && !status.isDestroyed()) return status
   const settings = await loadSettings()
-  const pos = settings.statusWindowPosition ?? defaultPosition()
+  // Saved position is restored across launches, but the display it was
+  // saved on may not be present anymore (closed laptop lid with external
+  // monitor disconnected, hot-unplug, display-arrangement change). Without
+  // this clamp the pill happily shows() at (2400, 800) into nothing — it
+  // is invisible to the user even though Electron thinks it's visible.
+  const savedPos = settings.statusWindowPosition
+  const pos = savedPos && isPositionOnVisibleDisplay(savedPos)
+    ? savedPos
+    : defaultPosition()
+  if (savedPos && pos !== savedPos) {
+    // eslint-disable-next-line no-console
+    console.log('[status:overlay] saved position is off-screen, falling back to default', {
+      saved: savedPos,
+      fallback: pos,
+    })
+  }
 
   status = new BrowserWindow({
     width: PILL_WIDTH,
@@ -120,18 +177,43 @@ export async function createStatusWindow(): Promise<BrowserWindow> {
 export function showStatus(): void {
   if (!status || status.isDestroyed()) return
   void applyOverlayMode()
-  // Always reassert these at show-time. macOS Spaces/fullscreen window
-  // behavior can be surprisingly stateful after displays sleep, apps
-  // enter fullscreen, or Mission Control moves windows around. The
-  // status pill is not normal app chrome; it is a HUD over the active
-  // target app, so every show must re-pin it instead of trusting the
-  // constructor state from minutes ago.
-  status.setAlwaysOnTop(true, 'screen-saver')
-  status.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  status.moveTop()
+  // Reassert overlay state every time we show. macOS Spaces / display
+  // sleep / Mission Control can quietly downgrade the window's level or
+  // collection behavior between shows; trusting the values set in the
+  // constructor minutes ago is how the pill ends up invisible.
+  reassertOverlayState('show')
+  // If the saved position has fallen off the visible display set since
+  // last show (display unplugged between dictation sessions), bounce the
+  // pill back to the default BEFORE showInactive runs — otherwise the
+  // window appears at an off-screen coord and the user thinks the app
+  // is broken. The check is cheap (small loop over current displays) and
+  // defends a real failure mode the createStatusWindow check cannot
+  // catch: display loss while the app is running.
+  const [px, py] = status.getPosition()
+  if (!isPositionOnVisibleDisplay({ x: px, y: py })) {
+    const fallback = defaultPosition()
+    // eslint-disable-next-line no-console
+    console.log('[status:overlay] runtime reposition: pill was off-screen', {
+      was: { x: px, y: py },
+      now: fallback,
+    })
+    status.setPosition(fallback.x, fallback.y, false)
+  }
   status.showInactive()
   hideGeneration += 1
   status.webContents.send('status:opening')
+  // Kick reassertion. macOS Space transitions during our showInactive
+  // can leave the window pinned to the previous Space; reasserting one
+  // frame later forces it onto the now-current Space without visibly
+  // flickering. This is the single most likely fix for the intermittent
+  // "pill does not appear over fullscreen" report — the panel type alone
+  // gets us into the right window class, but the Space attachment is
+  // negotiated separately and races with our show.
+  setTimeout(() => {
+    if (!status || status.isDestroyed()) return
+    if (!status.isVisible()) return
+    reassertOverlayState('kick')
+  }, OVERLAY_REASSERT_KICK_MS)
 }
 
 export function hideStatus(): void {
