@@ -40,10 +40,18 @@ export type DictationInput = {
   mimeType?: string
 }
 
-export type DictationOutcome = {
-  record: DictationRecord
-  pasted: boolean
-}
+// Discriminated union — every dictation call returns one of these shapes,
+// and exceptions are reserved for genuine bugs (undefined refs, broken
+// network, malformed provider response). The previous design threw
+// `Error('No speech detected')` for an empty transcript; that is a normal
+// outcome of "user pressed the hotkey and didn't speak", not a fault, and
+// throwing for it produced an Electron "Error occurred in handler" stack
+// trace in the terminal on every misfire. The renderer can now branch on
+// `kind` and pick the right UX (silent reset for no-speech, real error
+// pill for the rare unexpected throw that gets through).
+export type DictationOutcome =
+  | { kind: 'success'; record: DictationRecord; pasted: boolean }
+  | { kind: 'no-speech' }
 
 const DEEPSEEK_POLISH_TEMPORARILY_DISABLED = true
 
@@ -248,7 +256,16 @@ export async function runDictation(input: DictationInput): Promise<DictationOutc
     audioDurationMs: transcript.durationMs ?? null,
   })
   if (!transcript.text.trim()) {
-    throw new Error('No speech detected')
+    // Normal outcome, not a bug. The user pressed the hotkey but the
+    // provider returned no usable text — could be silence, mic muted, or
+    // audio too short for the model to commit. Surface as a structured
+    // result so the renderer can hide the pill quietly without an error
+    // flash and the terminal stays clean.
+    logDictationTrace('done:no-speech', {
+      runId,
+      sttMs: sttDoneAt - startedAt,
+    })
+    return { kind: 'no-speech' }
   }
 
   const polish = await maybePolish(transcript.text, settings)
@@ -307,7 +324,7 @@ export async function runDictation(input: DictationInput): Promise<DictationOutc
     finalChars: finalText.length,
   })
 
-  return { record, pasted }
+  return { kind: 'success', record, pasted }
 }
 
 async function finalizeDictationText({
@@ -330,7 +347,13 @@ async function finalizeDictationText({
   settings: AppSettings
 }): Promise<DictationOutcome> {
   if (!raw.trim()) {
-    throw new Error('No speech detected')
+    // See the runDictation note above — empty transcript is normal,
+    // surface it as a structured outcome instead of throwing.
+    logDictationTrace('done:no-speech', {
+      runId: id,
+      sttMs: sttDoneAt - startedAt,
+    })
+    return { kind: 'no-speech' }
   }
 
   const polish = await maybePolish(raw, settings)
@@ -386,7 +409,7 @@ async function finalizeDictationText({
     finalChars: finalText.length,
   })
 
-  return { record, pasted }
+  return { kind: 'success', record, pasted }
 }
 
 function formatComposerText(text: string, settings: AppSettings): string {

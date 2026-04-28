@@ -322,8 +322,22 @@ export function App() {
           if (!sessionId) throw new Error('No active Deepgram stream')
           await Promise.allSettled(pendingChunkSendsRef.current)
           pendingChunkSendsRef.current = []
-          await window.flow.dictation.streamStop(sessionId, audioDurationMs)
+          const outcome = await window.flow.dictation.streamStop(sessionId, audioDurationMs)
+          if (outcome.kind === 'no-speech') {
+            // Normal outcome — user pressed and didn't speak (or audio was
+            // too short for the model to commit). The visual pill already
+            // showed up with the level meter, so silently dismissing IS the
+            // feedback: "nothing to transcribe, moving on". Don't show the
+            // red error pill — that misrepresents a benign outcome as a
+            // failure and trains the user to ignore real errors.
+            console.log('[status:trace] dictation:no-speech')
+            resetToIdle()
+            await window.flow.status.hide()
+            return
+          }
         } catch (err) {
+          // Reaches here only for genuine bugs: provider crashed, IPC
+          // crashed, undefined ref. Those DO deserve the red pill.
           const message = (err as Error)?.message ?? String(err)
           showTransientError(message, err)
           return
