@@ -1,4 +1,5 @@
 import { ipcMain, BrowserWindow, shell, app } from 'electron'
+import { STT_PROVIDER_SUPPORT } from 'agent-voice-dictation'
 
 import {
   loadSettings,
@@ -81,6 +82,13 @@ export function registerIpc(): void {
     const value = await getSecret(params.id)
     return Boolean(value)
   })
+
+  // ---- Provider support ----
+  // Provider availability is a product contract, not a SettingsModal local
+  // detail. The reusable package owns the support registry because it knows
+  // which clients have been live-key validated; main exposes it read-only so
+  // renderer UI can disable unverified providers without duplicating policy.
+  ipcMain.handle('providers:support', () => STT_PROVIDER_SUPPORT)
 
   // ---- Recents ----
   ipcMain.handle('recents:list', () => listRecents())

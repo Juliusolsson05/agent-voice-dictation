@@ -2,8 +2,11 @@ import { clipboard } from 'electron'
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 
-import { type SpeechTraceEvent } from 'agent-voice-dictation'
-import { polishTranscriptWithOpenRouter } from 'agent-voice-dictation'
+import {
+  isSpeechProviderSelectable,
+  polishTranscriptWithOpenRouter,
+  type SpeechTraceEvent,
+} from 'agent-voice-dictation'
 
 import { getSpeechProvider } from '@main/providers/registry.js'
 import type { SpeechProviderRuntime } from '@main/providers/types.js'
@@ -53,6 +56,9 @@ const STT_TAG_NOTE = 'Speech-to-text; may contain transcription mistakes.'
 const activeStreamingProviders = new Map<string, SttProviderId>()
 
 async function getProviderApiKey(provider: SpeechProviderRuntime): Promise<string> {
+  if (!isSpeechProviderSelectable(provider.id)) {
+    throw new Error(`Provider "${provider.id}" is not available yet`)
+  }
   const apiKey = await getSecret(provider.secretId)
     ?? await getSttApiKeyFromEnv(provider.id)
   if (!apiKey) {
@@ -101,6 +107,7 @@ export async function stopStreamingDictation(id: string): Promise<DictationOutco
     provider: transcript.provider,
     model: transcript.model,
     sttDoneAt: transcript.sttDoneAt,
+    audioDurationMs: transcript.audioDurationMs,
     settings,
   })
 }
@@ -261,6 +268,7 @@ export async function runDictation(input: DictationInput): Promise<DictationOutc
     provider: provider.id,
     model: polish.model,
     durationMs: polishDoneAt - startedAt,
+    audioDurationMs: transcript.durationMs ?? null,
   }
   await appendRecent(record)
   const doneAt = Date.now()
@@ -285,6 +293,7 @@ async function finalizeDictationText({
   provider,
   model,
   sttDoneAt,
+  audioDurationMs,
   settings,
 }: {
   id: string
@@ -293,6 +302,7 @@ async function finalizeDictationText({
   provider: SttProviderId
   model: string | null
   sttDoneAt: number
+  audioDurationMs?: number | null
   settings: AppSettings
 }): Promise<DictationOutcome> {
   const polish = await maybePolish(raw, settings)
@@ -326,6 +336,7 @@ async function finalizeDictationText({
     provider,
     model: polish.model ?? model,
     durationMs: pasteDoneAt - startedAt,
+    audioDurationMs: audioDurationMs ?? null,
   }
   await appendRecent(record)
   const doneAt = Date.now()

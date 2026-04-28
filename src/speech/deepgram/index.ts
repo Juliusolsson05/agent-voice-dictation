@@ -1,6 +1,7 @@
-import { assertApiKey, readErrorBody, SpeechProviderError } from './errors.js'
-import { audioToBody, numberSecondsToMs } from './http.js'
-import type { SpeechProvider, SpeechTranscript, TranscribeOptions } from './types.js'
+import { assertApiKey, readErrorBody, SpeechProviderError } from '../errors.js'
+import { audioToBody, numberSecondsToMs } from '../http.js'
+import type { SpeechProvider, SpeechTranscript, TranscribeOptions } from '../types.js'
+export * from './streaming.js'
 
 export type DeepgramOptions = {
   baseUrl?: string

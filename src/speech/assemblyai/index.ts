@@ -1,6 +1,6 @@
-import { assertApiKey, readErrorBody, SpeechProviderError } from './errors.js'
-import { audioToBody, numberMs } from './http.js'
-import type { SpeechProvider, SpeechTraceEvent, SpeechTranscript, TranscribeOptions } from './types.js'
+import { assertApiKey, readErrorBody, SpeechProviderError } from '../errors.js'
+import { audioToBody, numberMs } from '../http.js'
+import type { SpeechProvider, SpeechTraceEvent, SpeechTranscript, TranscribeOptions } from '../types.js'
 
 type AssemblyAiTraceEvent = {
   phase: string

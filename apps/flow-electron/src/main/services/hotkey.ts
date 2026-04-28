@@ -5,9 +5,14 @@ import { DEFAULT_SETTINGS, loadSettings, saveSettings } from '@main/services/set
 import { startMacHotkeyHelper, stopMacHotkeyHelper } from '@main/services/macHotkeyHelper.js'
 
 let onHotkeyFire: (() => void) | null = null
+let onHotkeyRelease: (() => void) | null = null
 
-export function configureHotkeyHandler(handler: () => void): void {
-  onHotkeyFire = handler
+export function configureHotkeyHandler(
+  onPress: () => void,
+  onRelease?: () => void,
+): void {
+  onHotkeyFire = onPress
+  onHotkeyRelease = onRelease ?? null
 }
 
 export async function registerConfiguredHotkey(): Promise<{
@@ -36,7 +41,10 @@ export async function registerConfiguredHotkey(): Promise<{
     // not Electron's accelerator parser. That is the only path that can
     // represent Fn, bare modifiers, punctuation, and physical-key
     // bindings without silently rewriting what the user chose.
-    const ok = await startMacHotkeyHelper(requested, onHotkeyFire)
+    const ok = await startMacHotkeyHelper(requested, {
+      onPress: onHotkeyFire,
+      onRelease: onHotkeyRelease ?? undefined,
+    })
     return { accelerator: requested, ok, fallbackUsed: false }
   }
 

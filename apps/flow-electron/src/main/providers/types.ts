@@ -27,6 +27,7 @@ export type StreamingTranscript = {
   provider: SttProviderId
   model: string | null
   sttDoneAt: number
+  audioDurationMs?: number | null
 }
 
 export type StreamingProvider = {

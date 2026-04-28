@@ -54,6 +54,7 @@ let keyCodes: [String: CGKeyCode] = [
 
 let requestedKeyCode = requestedKey.flatMap { keyCodes[$0] }
 var previousModifierMatch = false
+var previousKeyMatch = false
 var eventTap: CFMachPort?
 
 func activeModifiers(_ flags: CGEventFlags) -> Set<String> {
@@ -72,17 +73,15 @@ func emit(_ type: String, _ extra: String = "") {
   fflush(stdout)
 }
 
-func shouldFireKeyDown(_ event: CGEvent) -> Bool {
+func keyMatches(_ event: CGEvent) -> Bool {
   guard let keyCode = requestedKeyCode else { return false }
   if event.getIntegerValueField(.keyboardEventKeycode) != Int64(keyCode) { return false }
   return activeModifiers(event.flags) == requestedModifiers
 }
 
-func shouldFireModifierTransition(_ event: CGEvent) -> Bool {
+func modifierMatches(_ event: CGEvent) -> Bool {
   if requestedKey != nil { return false }
-  let isMatch = activeModifiers(event.flags) == requestedModifiers
-  defer { previousModifierMatch = isMatch }
-  return isMatch && !previousModifierMatch
+  return activeModifiers(event.flags) == requestedModifiers
 }
 
 if binding.isEmpty {
@@ -109,13 +108,37 @@ let callback: CGEventTapCallBack = { _, type, event, _ in
     return Unmanaged.passUnretained(event)
   }
 
-  if type == .keyDown && shouldFireKeyDown(event) {
-    emit("hotkey")
+  if type == .keyDown && keyMatches(event) && !previousKeyMatch {
+    previousKeyMatch = true
+    emit("hotkey-down")
     return nil
   }
 
-  if type == .flagsChanged && shouldFireModifierTransition(event) {
-    emit("hotkey")
+  if type == .keyUp && previousKeyMatch {
+    guard let keyCode = requestedKeyCode else { return Unmanaged.passUnretained(event) }
+    if event.getIntegerValueField(.keyboardEventKeycode) == Int64(keyCode) {
+      previousKeyMatch = false
+      emit("hotkey-up")
+      return nil
+    }
+  }
+
+  if type == .flagsChanged {
+    let isMatch = modifierMatches(event)
+    if isMatch && !previousModifierMatch {
+      previousModifierMatch = true
+      emit("hotkey-down")
+      return nil
+    }
+    if !isMatch && previousModifierMatch {
+      previousModifierMatch = false
+      emit("hotkey-up")
+      return nil
+    }
+  }
+
+  if type == .keyDown && keyMatches(event) {
+    emit("hotkey-down")
     return nil
   }
 
@@ -124,6 +147,7 @@ let callback: CGEventTapCallBack = { _, type, event, _ in
 
 let mask = CGEventMask(
   (1 << CGEventType.keyDown.rawValue) |
+  (1 << CGEventType.keyUp.rawValue) |
   (1 << CGEventType.flagsChanged.rawValue)
 )
 

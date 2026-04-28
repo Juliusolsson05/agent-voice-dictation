@@ -9,7 +9,7 @@ let child: ChildProcessWithoutNullStreams | null = null
 
 export async function startMacHotkeyHelper(
   binding: string,
-  onFire: () => void,
+  handlers: { onPress: () => void; onRelease?: () => void },
 ): Promise<boolean> {
   stopMacHotkeyHelper()
 
@@ -27,7 +27,8 @@ export async function startMacHotkeyHelper(
         if (!line.trim()) continue
         try {
           const event = JSON.parse(line) as { type?: string }
-          if (event.type === 'hotkey') onFire()
+          if (event.type === 'hotkey' || event.type === 'hotkey-down') handlers.onPress()
+          if (event.type === 'hotkey-up') handlers.onRelease?.()
           if (event.type === 'ready') {
             // eslint-disable-next-line no-console
             console.log(`[hotkey] mac helper ready for "${binding}"`)

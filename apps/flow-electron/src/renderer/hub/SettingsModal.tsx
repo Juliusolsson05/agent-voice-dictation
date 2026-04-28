@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import type { AppSettings, SttProviderId } from '../../preload/index'
+import type { AppSettings, SpeechProviderSupportMap, SttProviderId } from '../../preload/index'
 import { HotkeyInput } from './HotkeyInput'
 
 type Props = {
@@ -173,21 +173,42 @@ function ProvidersTab({
   settings: AppSettings
   update: (patch: Partial<AppSettings>) => Promise<void>
 }) {
+  const [support, setSupport] = useState<SpeechProviderSupportMap | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void window.flow.providers.support().then(next => {
+      if (alive) setSupport(next)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
+
   return (
     <>
       <Section title="Speech to text">
         <Row label="Provider">
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {PROVIDERS.map(p => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => void update({ sttProvider: p.id })}
-                style={pillStyle(settings.sttProvider === p.id)}
-              >
-                {p.label}
-              </button>
-            ))}
+            {PROVIDERS.map(p => {
+              const providerSupport = support?.[p.id]
+              const disabled = providerSupport ? !providerSupport.selectable : true
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => {
+                    if (!disabled) void update({ sttProvider: p.id })
+                  }}
+                  disabled={disabled}
+                  title={providerSupport?.reason}
+                  style={pillStyle(settings.sttProvider === p.id, disabled)}
+                >
+                  {p.label}
+                  {disabled ? ' (soon)' : ''}
+                </button>
+              )
+            })}
           </div>
         </Row>
         {PROVIDERS.map(p => (
@@ -422,7 +443,7 @@ function Toggle({
   )
 }
 
-function pillStyle(active: boolean): React.CSSProperties {
+function pillStyle(active: boolean, disabled = false): React.CSSProperties {
   return {
     padding: '6px 12px',
     fontSize: 12,
@@ -430,6 +451,8 @@ function pillStyle(active: boolean): React.CSSProperties {
     border: '1px solid ' + (active ? 'var(--accent)' : 'var(--border)'),
     background: active ? 'var(--accent)' : 'rgba(255,255,255,0.025)',
     color: active ? 'var(--accent-fg)' : 'var(--ink-dim)',
+    opacity: disabled ? 0.48 : 1,
+    cursor: disabled ? 'not-allowed' : 'pointer',
     transition: 'background var(--motion-fast) ease, border-color var(--motion-fast) ease, color var(--motion-fast) ease',
   }
 }

@@ -27,6 +27,7 @@ export type DictationRecord = {
   provider: string
   model: string | null
   durationMs: number
+  audioDurationMs?: number | null
 }
 
 const FILE_VERSION = 1

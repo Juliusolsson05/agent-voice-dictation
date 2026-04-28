@@ -36,10 +36,20 @@ if (!lock) {
 }
 
 async function start(): Promise<void> {
-  configureHotkeyHandler(() => {
-    showStatus()
-    broadcastDictationEvent('hotkey:fired')
-  })
+  configureHotkeyHandler(
+    () => {
+      showStatus()
+      broadcastDictationEvent('hotkey:down')
+      if (process.platform !== 'darwin') {
+        // Electron globalShortcut has no release event. Non-macOS keeps the
+        // old toggle channel until we build a first-party helper there too.
+        broadcastDictationEvent('hotkey:fired')
+      }
+    },
+    () => {
+      broadcastDictationEvent('hotkey:up')
+    },
+  )
 
   registerIpc()
 

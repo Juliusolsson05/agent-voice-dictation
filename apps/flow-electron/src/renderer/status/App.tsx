@@ -253,12 +253,23 @@ export function App() {
     void window.flow.status.hide()
   }, [stopMeter])
 
-  // Hotkey behavior: first fire toggles recording on, next fire
-  // toggles it off. This is a simple toggle in v1 because Electron's
-  // globalShortcut only fires once per press. A future native module
-  // can implement true press-and-hold.
+  // macOS default is true hold-to-talk: the native helper emits explicit
+  // press/release events because Electron's globalShortcut cannot represent the
+  // release side of Fn, bare modifiers, or physical-key bindings. The old
+  // `hotkey:fired` toggle channel remains only for non-macOS fallback.
   useEffect(() => {
-    const off = window.flow.events.onHotkeyFired(() => {
+    const offDown = window.flow.events.onHotkeyDown(() => {
+      setVisible(true)
+      if (state === 'idle') {
+        void startRecording()
+      }
+    })
+    const offUp = window.flow.events.onHotkeyUp(() => {
+      if (state === 'recording') {
+        stopRecording()
+      }
+    })
+    const offToggleFallback = window.flow.events.onHotkeyFired(() => {
       setVisible(true)
       if (state === 'idle') {
         void startRecording()
@@ -266,7 +277,11 @@ export function App() {
         stopRecording()
       }
     })
-    return off
+    return () => {
+      offDown()
+      offUp()
+      offToggleFallback()
+    }
   }, [state, startRecording, stopRecording])
 
   useEffect(() => {

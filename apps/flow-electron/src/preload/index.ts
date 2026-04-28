@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 import type { AppSettings, SttProviderId } from '@main/services/settingsStore.js'
 import type { DictationRecord } from '@main/services/recentsStore.js'
+import type { SpeechProviderSupportMap } from 'agent-voice-dictation'
 
 // Preload bridge.
 //
@@ -25,6 +26,9 @@ export type FlowApi = {
     clear(id: string): Promise<{ ok: true }>
     has(id: string): Promise<boolean>
     list(): Promise<string[]>
+  }
+  providers: {
+    support(): Promise<SpeechProviderSupportMap>
   }
   recents: {
     list(): Promise<DictationRecord[]>
@@ -54,6 +58,8 @@ export type FlowApi = {
   }
   events: {
     onHotkeyFired(handler: () => void): () => void
+    onHotkeyDown(handler: () => void): () => void
+    onHotkeyUp(handler: () => void): () => void
     onStatusOpening(handler: () => void): () => void
     onStatusClosing(handler: () => void): () => void
   }
@@ -70,6 +76,9 @@ const api: FlowApi = {
     clear: id => ipcRenderer.invoke('secrets:clear', { id }),
     has: id => ipcRenderer.invoke('secrets:has', { id }),
     list: () => ipcRenderer.invoke('secrets:list'),
+  },
+  providers: {
+    support: () => ipcRenderer.invoke('providers:support'),
   },
   recents: {
     list: () => ipcRenderer.invoke('recents:list'),
@@ -104,6 +113,16 @@ const api: FlowApi = {
       // tab change / unmount.
       return () => ipcRenderer.off('hotkey:fired', wrapped)
     },
+    onHotkeyDown(handler) {
+      const wrapped = () => handler()
+      ipcRenderer.on('hotkey:down', wrapped)
+      return () => ipcRenderer.off('hotkey:down', wrapped)
+    },
+    onHotkeyUp(handler) {
+      const wrapped = () => handler()
+      ipcRenderer.on('hotkey:up', wrapped)
+      return () => ipcRenderer.off('hotkey:up', wrapped)
+    },
     onStatusOpening(handler) {
       const wrapped = () => handler()
       ipcRenderer.on('status:opening', wrapped)
@@ -121,4 +140,4 @@ contextBridge.exposeInMainWorld('flow', api)
 
 // Re-export types so the renderer can `import type` from the
 // preload module and stay in sync.
-export type { AppSettings, SttProviderId, DictationRecord }
+export type { AppSettings, SttProviderId, DictationRecord, SpeechProviderSupportMap }

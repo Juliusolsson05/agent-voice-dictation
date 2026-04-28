@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { isSpeechProviderSelectable } from 'agent-voice-dictation'
 
 // Plain settings store. Lives next to secrets.json but UNencrypted on
 // purpose: this file holds non-sensitive preferences (selected provider
@@ -79,11 +80,12 @@ function coerceSettings(value: unknown): AppSettings {
     ...DEFAULT_SETTINGS,
     ...partial,
     v: 1,
-    // The desktop app's active v1 path is Deepgram streaming. Batch providers
-    // stay in the package for tests/fallbacks, but letting an old settings file
-    // keep `assemblyai` would silently route users back to the 3-5s upload/job
-    // path that cannot hit the sub-second target.
-    sttProvider: 'deepgram',
+    // Provider selection is gated by the package-level support registry, not
+    // by whether a client file happens to exist. We have unverified clients in
+    // the repo for future work, but old settings files must not keep selecting
+    // them after the product marks them unavailable. Deepgram remains the
+    // fallback because it is the active low-latency path.
+    sttProvider: isSupportedSttProvider(partial.sttProvider) ? partial.sttProvider : 'deepgram',
     // Force all existing settings files back to English. We previously allowed
     // free-form BCP-47 codes, which let an old `sv` value reach AssemblyAI and
     // fail Universal-3 Pro with "sv is not currently supported". V1 is an
@@ -100,6 +102,12 @@ function coerceSettings(value: unknown): AppSettings {
         : null,
   }
   return coerced
+}
+
+function isSupportedSttProvider(value: unknown): value is SttProviderId {
+  return typeof value === 'string'
+    && ['assemblyai', 'deepgram', 'openai', 'gladia', 'elevenlabs'].includes(value)
+    && isSpeechProviderSelectable(value as SttProviderId)
 }
 
 let cached: AppSettings | null = null

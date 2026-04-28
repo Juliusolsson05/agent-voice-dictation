@@ -23,10 +23,12 @@ export function Home({ settings, recents, onChanged, onOpenSettings }: Props) {
   const hotkeyText = settings?.hotkey ?? '—'
   const provider = settings?.sttProvider ?? 'assemblyai'
   const polish = settings?.polishEnabled ? settings.openrouterModel : 'off'
+  const stats = useMemo(() => calculateStats(recents), [recents])
 
   return (
     <div style={pageStyle}>
       <Hero hotkey={hotkeyText} provider={provider} polish={polish} onOpenSettings={onOpenSettings} />
+      <StatsPanel stats={stats} />
       <RecentList recents={recents} onChanged={onChanged} />
     </div>
   )
@@ -72,6 +74,46 @@ function Chip({ label, value }: { label: string; value: string }) {
       <span style={{ color: 'var(--ink-mute)' }}>{label}</span>
       <span style={{ color: 'var(--ink)', fontFamily: 'var(--font-mono)' }}>{value}</span>
     </span>
+  )
+}
+
+type DictationStats = {
+  sessions: number
+  words: number
+  averageWpm: number
+  totalAudioMs: number
+}
+
+function StatsPanel({ stats }: { stats: DictationStats }) {
+  const wpmWidth = `${Math.min(100, Math.round((stats.averageWpm / 180) * 100))}%`
+
+  return (
+    <section style={statsPanelStyle}>
+      <div style={statsHeaderStyle}>
+        <h2 style={sectionHeadingStyle}>Stats</h2>
+        <span style={statsRangeStyle}>local recents</span>
+      </div>
+      <div style={statsGridStyle}>
+        <StatBlock label="Sessions" value={fmtNumber(stats.sessions)} />
+        <StatBlock label="Words" value={fmtNumber(stats.words)} />
+        <div style={statBlockStyle}>
+          <div style={statLabelStyle}>Words/min</div>
+          <div style={statValueStyle}>{stats.averageWpm ? Math.round(stats.averageWpm) : '—'}</div>
+          <div style={wpmTrackStyle}>
+            <div style={{ ...wpmFillStyle, width: wpmWidth }} />
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function StatBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={statBlockStyle}>
+      <div style={statLabelStyle}>{label}</div>
+      <div style={statValueStyle}>{value}</div>
+    </div>
   )
 }
 
@@ -171,6 +213,43 @@ function fmtTime(ts: number): string {
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+function calculateStats(recents: DictationRecord[]): DictationStats {
+  const words = recents.reduce((sum, record) => {
+    const text = record.finalText ?? record.polished ?? record.raw
+    return sum + countWords(stripSttTag(text))
+  }, 0)
+  const totalAudioMs = recents.reduce((sum, record) => {
+    const audioMs = typeof record.audioDurationMs === 'number' ? record.audioDurationMs : 0
+    return sum + Math.max(0, audioMs)
+  }, 0)
+
+  // WPM is based on provider-reported audio duration when available, not total
+  // wall-clock pipeline duration. The latter includes network/upload/paste time
+  // and would punish slower providers instead of describing how fast the user
+  // actually spoke.
+  const averageWpm = totalAudioMs > 0 ? words / (totalAudioMs / 60_000) : 0
+  return {
+    sessions: recents.length,
+    words,
+    averageWpm,
+    totalAudioMs,
+  }
+}
+
+function stripSttTag(text: string): string {
+  return text
+    .replace(/^<stt\b[^>]*>\s*/i, '')
+    .replace(/\s*<\/stt>\s*$/i, '')
+}
+
+function countWords(text: string): number {
+  return text.trim().match(/[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)*/g)?.length ?? 0
+}
+
+function fmtNumber(value: number): string {
+  return new Intl.NumberFormat().format(value)
+}
+
 const pageStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
@@ -236,6 +315,75 @@ const chipStyle: React.CSSProperties = {
   border: '1px solid var(--border-soft)',
   borderRadius: 8,
   fontSize: 11,
+}
+
+const statsPanelStyle: React.CSSProperties = {
+  background: 'rgba(255,255,255,0.025)',
+  border: '1px solid var(--border-soft)',
+  borderRadius: 12,
+  padding: '15px 16px 16px',
+  boxShadow: 'var(--shadow-card)',
+}
+
+const statsHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  marginBottom: 12,
+}
+
+const statsRangeStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 10.5,
+  color: 'var(--ink-mute)',
+  textTransform: 'uppercase',
+  letterSpacing: 0.6,
+}
+
+const statsGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+  gap: 10,
+}
+
+const statBlockStyle: React.CSSProperties = {
+  minHeight: 76,
+  border: '1px solid var(--border-soft)',
+  background: 'rgba(17,21,27,0.72)',
+  borderRadius: 10,
+  padding: '12px 13px',
+}
+
+const statLabelStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 10.5,
+  color: 'var(--ink-mute)',
+  textTransform: 'uppercase',
+  letterSpacing: 0.5,
+}
+
+const statValueStyle: React.CSSProperties = {
+  marginTop: 8,
+  fontSize: 23,
+  lineHeight: 1,
+  fontWeight: 600,
+  color: 'var(--ink)',
+  letterSpacing: 0,
+}
+
+const wpmTrackStyle: React.CSSProperties = {
+  height: 4,
+  marginTop: 12,
+  borderRadius: 999,
+  background: 'rgba(255,255,255,0.075)',
+  overflow: 'hidden',
+}
+
+const wpmFillStyle: React.CSSProperties = {
+  height: '100%',
+  borderRadius: 999,
+  background: 'var(--accent)',
+  transition: 'width var(--motion-med) var(--ease-out)',
 }
 
 const listSectionStyle: React.CSSProperties = {

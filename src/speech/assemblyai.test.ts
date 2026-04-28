@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
-import { transcribeAssemblyAi } from './assemblyai.js'
+import { transcribeAssemblyAi } from './assemblyai/index.js'
 
 const originalFetch = globalThis.fetch
 

@@ -1,0 +1,340 @@
+import { randomUUID } from 'node:crypto'
+import WebSocket from 'ws'
+
+import type { SpeechTraceEvent } from '../types.js'
+
+export type DeepgramStreamingOptions = {
+  baseUrl?: string
+  model?: string
+  closeGraceMs?: number
+}
+
+export type DeepgramStreamingStartInput = {
+  apiKey: string
+  mimeType?: string
+  onTrace?: ((event: SpeechTraceEvent) => void) | undefined
+}
+
+export type DeepgramStreamingTranscript = {
+  id: string
+  startedAt: number
+  text: string
+  provider: 'deepgram'
+  model: string
+  sttDoneAt: number
+  chunkCount: number
+  audioBytes: number
+}
+
+export type DeepgramStreamingProvider = {
+  start(input: DeepgramStreamingStartInput): { id: string }
+  pushChunk(id: string, chunk: ArrayBuffer | Uint8Array): void
+  stop(id: string): Promise<DeepgramStreamingTranscript>
+  cancel(id: string): void
+}
+
+type DeepgramStreamingSession = {
+  id: string
+  startedAt: number
+  ws: WebSocket
+  opened: boolean
+  stopped: boolean
+  queuedChunks: Buffer[]
+  chunkCount: number
+  audioBytes: number
+  finalTexts: string[]
+  interimText: string
+  resolve: (outcome: DeepgramStreamingTranscript) => void
+  reject: (err: Error) => void
+  done: Promise<DeepgramStreamingTranscript>
+  onTrace: (event: SpeechTraceEvent) => void
+}
+
+const DEFAULT_DEEPGRAM_STREAM_MODEL = 'flux-general-en'
+const DEFAULT_CLOSE_GRACE_MS = 140
+
+export function createDeepgramStreamingProvider(
+  defaults: DeepgramStreamingOptions = {},
+): DeepgramStreamingProvider {
+  const model = defaults.model ?? DEFAULT_DEEPGRAM_STREAM_MODEL
+  const closeGraceMs = defaults.closeGraceMs ?? DEFAULT_CLOSE_GRACE_MS
+  const sessions = new Map<string, DeepgramStreamingSession>()
+  const failedSessions = new Map<string, Error>()
+
+  function start({ apiKey, mimeType, onTrace }: DeepgramStreamingStartInput): { id: string } {
+    const id = randomUUID()
+    const startedAt = Date.now()
+    const url = new URL(defaults.baseUrl ?? 'wss://api.deepgram.com/v2/listen')
+    url.searchParams.set('model', model)
+
+    // Deepgram streaming is package-owned because it is provider protocol, not
+    // app behavior. The desktop app and cc-shell both need the same guarantees:
+    // queue chunks until the socket opens, send Deepgram's CloseStream control
+    // message instead of closing the socket directly, and keep the last interim
+    // text as a fallback when the provider does not emit a final turn. If this
+    // lived in an app adapter, every host would have to rediscover those edge
+    // cases independently.
+    const ws = new WebSocket(url, {
+      headers: {
+        Authorization: `Token ${apiKey}`,
+      },
+    })
+
+    let resolveDone!: (outcome: DeepgramStreamingTranscript) => void
+    let rejectDone!: (err: Error) => void
+    const session: DeepgramStreamingSession = {
+      id,
+      startedAt,
+      ws,
+      opened: false,
+      stopped: false,
+      queuedChunks: [],
+      chunkCount: 0,
+      audioBytes: 0,
+      finalTexts: [],
+      interimText: '',
+      resolve: outcome => resolveDone(outcome),
+      reject: err => rejectDone(err),
+      done: new Promise<DeepgramStreamingTranscript>((resolve, reject) => {
+        resolveDone = resolve
+        rejectDone = reject
+      }),
+      onTrace: onTrace ?? (() => {}),
+    }
+    void session.done.catch(() => {})
+    sessions.set(id, session)
+
+    trace(session, 'stream:start', {
+      runId: id,
+      model,
+      mimeType: mimeType ?? null,
+    })
+
+    ws.on('open', () => {
+      session.opened = true
+      trace(session, 'deepgram:open', {
+        runId: id,
+        ms: Date.now() - startedAt,
+        queuedChunks: session.queuedChunks.length,
+      })
+      for (const chunk of session.queuedChunks.splice(0)) {
+        ws.send(chunk)
+      }
+    })
+
+    ws.on('message', data => {
+      handleDeepgramMessage(session, data)
+    })
+
+    ws.on('error', err => {
+      trace(session, 'deepgram:error', {
+        runId: id,
+        message: err.message,
+      })
+      rejectSession(session, err)
+    })
+
+    ws.on('unexpected-response', (_request, response) => {
+      const chunks: Buffer[] = []
+      response.on('data', chunk => {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+      })
+      response.on('end', () => {
+        trace(session, 'deepgram:handshake-rejected', {
+          runId: id,
+          statusCode: response.statusCode,
+          statusMessage: response.statusMessage,
+          body: Buffer.concat(chunks).toString('utf8'),
+        })
+      })
+    })
+
+    ws.on('close', (code, reason) => {
+      trace(session, 'deepgram:close', {
+        runId: id,
+        ms: Date.now() - startedAt,
+        code,
+        reason: reason.toString(),
+        finalChars: session.finalTexts.join(' ').trim().length,
+        interimChars: session.interimText.trim().length,
+      })
+      if (session.stopped) {
+        finalizeSession(session)
+      }
+    })
+
+    return { id }
+  }
+
+  function pushChunk(id: string, chunk: ArrayBuffer | Uint8Array): void {
+    const session = sessions.get(id)
+    if (!session || session.stopped) return
+    const buffer = chunkToBuffer(chunk)
+    if (!buffer.length) return
+
+    session.chunkCount += 1
+    session.audioBytes += buffer.byteLength
+
+    if (session.opened && session.ws.readyState === WebSocket.OPEN) {
+      session.ws.send(buffer)
+    } else {
+      session.queuedChunks.push(buffer)
+    }
+  }
+
+  async function stop(id: string): Promise<DeepgramStreamingTranscript> {
+    const failed = failedSessions.get(id)
+    if (failed) {
+      failedSessions.delete(id)
+      throw failed
+    }
+    const session = sessions.get(id)
+    if (!session) throw new Error(`No active Deepgram streaming session "${id}"`)
+    if (session.stopped) return session.done
+    session.stopped = true
+
+    trace(session, 'stream:stop', {
+      runId: id,
+      chunkCount: session.chunkCount,
+      audioBytes: session.audioBytes,
+      ms: Date.now() - session.startedAt,
+      closeGraceMs,
+    })
+
+    await sleep(closeGraceMs)
+
+    if (session.ws.readyState === WebSocket.OPEN) {
+      // Deepgram uses a protocol-level finalization message. A plain socket
+      // close can discard the last phrase if the user releases the key while
+      // Deepgram is still deciding the final turn.
+      session.ws.send(JSON.stringify({ type: 'CloseStream' }))
+    } else if (session.ws.readyState === WebSocket.CONNECTING) {
+      session.ws.once('open', () => {
+        session.ws.send(JSON.stringify({ type: 'CloseStream' }))
+      })
+    } else {
+      finalizeSession(session)
+    }
+
+    return session.done
+  }
+
+  function cancel(id: string): void {
+    const session = sessions.get(id)
+    if (!session) return
+    sessions.delete(id)
+    session.stopped = true
+    try {
+      session.ws.close()
+    } catch {
+      /* noop */
+    }
+  }
+
+  function handleDeepgramMessage(session: DeepgramStreamingSession, data: WebSocket.RawData): void {
+    const raw = data.toString()
+    let message: Record<string, unknown>
+    try {
+      message = JSON.parse(raw) as Record<string, unknown>
+    } catch {
+      trace(session, 'deepgram:message:raw', {
+        runId: session.id,
+        bytes: raw.length,
+      })
+      return
+    }
+
+    const transcript = extractDeepgramTranscript(message)
+    const event = typeof message.event === 'string' ? message.event : null
+    const isFinal = message.is_final === true
+      || message.speech_final === true
+      || event === 'EndOfTurn'
+    const type = typeof message.type === 'string' ? message.type : null
+
+    if (transcript) {
+      if (isFinal) {
+        session.finalTexts.push(transcript)
+      } else {
+        session.interimText = transcript
+      }
+    }
+
+    if (transcript || type) {
+      trace(session, 'deepgram:message', {
+        runId: session.id,
+        type,
+        event,
+        isFinal,
+        transcriptChars: transcript.length,
+        elapsedMs: Date.now() - session.startedAt,
+      })
+    }
+  }
+
+  function finalizeSession(session: DeepgramStreamingSession): void {
+    if (!sessions.has(session.id)) return
+    sessions.delete(session.id)
+
+    const text = session.finalTexts.join(' ').replace(/\s+/g, ' ').trim()
+      || session.interimText.trim()
+    const sttDoneAt = Date.now()
+
+    trace(session, 'deepgram:complete', {
+      runId: session.id,
+      sttMs: sttDoneAt - session.startedAt,
+      chunkCount: session.chunkCount,
+      audioBytes: session.audioBytes,
+      textChars: text.length,
+      usedInterimFallback: !session.finalTexts.length && Boolean(session.interimText.trim()),
+    })
+
+    session.resolve({
+      id: session.id,
+      startedAt: session.startedAt,
+      text,
+      provider: 'deepgram',
+      model,
+      sttDoneAt,
+      chunkCount: session.chunkCount,
+      audioBytes: session.audioBytes,
+    })
+  }
+
+  function rejectSession(session: DeepgramStreamingSession, err: unknown): void {
+    sessions.delete(session.id)
+    const error = err instanceof Error ? err : new Error(String(err))
+    failedSessions.set(session.id, error)
+    session.reject(error)
+  }
+
+  return { start, pushChunk, stop, cancel }
+}
+
+function extractDeepgramTranscript(message: Record<string, unknown>): string {
+  if (typeof message.transcript === 'string') return message.transcript.trim()
+  const channel = message.channel as Record<string, unknown> | undefined
+  const alternatives = channel?.alternatives as unknown[] | undefined
+  const first = alternatives?.[0] as Record<string, unknown> | undefined
+  return typeof first?.transcript === 'string' ? first.transcript.trim() : ''
+}
+
+function chunkToBuffer(chunk: ArrayBuffer | Uint8Array): Buffer {
+  if (chunk instanceof ArrayBuffer) return Buffer.from(chunk)
+  return Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)
+}
+
+function trace(
+  session: DeepgramStreamingSession,
+  phase: string,
+  details: Record<string, unknown>,
+): void {
+  session.onTrace({
+    provider: 'deepgram',
+    phase,
+    ...details,
+  })
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}

@@ -1,6 +1,6 @@
-import { assertApiKey, readErrorBody, SpeechProviderError } from './errors.js'
-import { fileName, formFile, numberSecondsToMs } from './http.js'
-import type { SpeechProvider, SpeechTranscript, TranscribeOptions } from './types.js'
+import { assertApiKey, readErrorBody, SpeechProviderError } from '../errors.js'
+import { fileName, formFile, numberSecondsToMs } from '../http.js'
+import type { SpeechProvider, SpeechTranscript, TranscribeOptions } from '../types.js'
 
 export type ElevenLabsOptions = {
   baseUrl?: string
