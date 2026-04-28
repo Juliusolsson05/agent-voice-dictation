@@ -61,7 +61,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   microphoneDeviceId: null,
   language: 'en',
   autoPasteAtCursor: true,
-  playSounds: false,
+  // Default ON because the open/close chirps are part of the dictation UX,
+  // not a power-user opt-in: a press without an audible confirmation feels
+  // like the app missed the hotkey, even when the pill appears. The
+  // Settings toggle still exists for users who specifically want silence.
+  playSounds: true,
   handsFreeMode: false,
   insertSttTag: false,
   sttProvider: 'deepgram',

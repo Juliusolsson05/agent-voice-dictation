@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { MicPill } from './MicPill'
+import { playCloseSound, playOpenSound } from './sounds'
 
 // The Status window's job:
 //   1. Listen for `hotkey:fired` from main.
@@ -62,6 +63,12 @@ export function App() {
   const rafRef = useRef<number | null>(null)
   const levelRefs = useRef<number[]>([...EMPTY_LEVELS])
   const noiseFloorRef = useRef<number[]>(VOICE_BANDS_HZ.map(() => 0.08))
+  // Mirror of settings.playSounds so stopRecording (synchronous) can decide
+  // whether to play the close cue without re-loading settings every release.
+  // startRecording refreshes this on every press from the fresh settings
+  // load, which keeps the value in sync with anything the user just toggled
+  // in Settings without us having to subscribe to a settings:changed event.
+  const soundsEnabledRef = useRef(false)
 
   const stopMeter = useCallback(() => {
     if (rafRef.current !== null) {
@@ -184,9 +191,11 @@ export function App() {
       })
       const settings = await window.flow.settings.get()
       setHandsFree(settings.handsFreeMode)
+      soundsEnabledRef.current = settings.playSounds
       console.log('[status:trace] settings:loaded', {
         ms: Date.now() - startRequestedAt,
         handsFreeMode: settings.handsFreeMode,
+        playSounds: settings.playSounds,
       })
       const gumStartedAt = Date.now()
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -373,6 +382,10 @@ export function App() {
       lifecycleRef.current = 'recording'
       setState('recording')
       setError(null)
+      // Open chirp fires the moment we commit to recording — paired with
+      // the visual pill appearing. Audio + visual landing together is the
+      // honest "I am listening now" cue.
+      if (soundsEnabledRef.current) playOpenSound()
       startMeter(stream)
       if (pendingStopRef.current) {
         pendingStopRef.current = false
@@ -415,6 +428,13 @@ export function App() {
         streamSessionIdRef.current = null
         if (sessionId) void window.flow.dictation.streamCancel(sessionId)
       }
+      // Close chirp fires only when this is a real release (not a discarded
+      // misclick). We check discardStopRef AFTER the short-press branch above
+      // sets it, so the short-press path stays silent. The chirp lands on
+      // hotkey release — what the user feels as the "end" — not later when
+      // transcription completes; the close cue is about the gesture, not
+      // the model's response.
+      if (!discardStopRef.current && soundsEnabledRef.current) playCloseSound()
       // `MediaRecorder.stop()` should emit a final dataavailable event, but an
       // abrupt hotkey release can still race the encoder and our IPC close path.
       // Requesting data first gives Chromium one explicit chance to flush the
