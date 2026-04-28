@@ -4,3 +4,9 @@ dist/
 *.log
 .env
 .env.*
+
+# Electron app build output. electron-vite emits to apps/flow-electron/out/
+# on every dev run and build, and these files are not source. Listed
+# explicitly because the matching `out/` glob would also catch any
+# `out/` directory the package itself ever introduces by accident.
+apps/flow-electron/out/
