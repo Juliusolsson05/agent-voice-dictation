@@ -24,7 +24,7 @@ export async function transcribeOpenAi(
 ): Promise<SpeechTranscript> {
   assertApiKey('openai', options.apiKey)
   const form = new FormData()
-  form.set('file', formFile(options.audio, 'audio.webm'), fileName(options.audio, 'audio.webm'))
+  form.set('file', formFile(options.audio), fileName(options.audio, 'audio.webm'))
   form.set('model', providerOptions.model ?? 'gpt-4o-mini-transcribe')
   form.set('response_format', providerOptions.responseFormat ?? 'verbose_json')
   if (providerOptions.prompt) form.set('prompt', providerOptions.prompt)

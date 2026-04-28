@@ -26,7 +26,7 @@ import {
   stopStreamingDictation,
 } from '@main/services/dictationController.js'
 import { registerConfiguredHotkey } from '@main/services/hotkey.js'
-import { getStatusWindow, showStatus, hideStatus } from '@main/windows/status.js'
+import { showStatus, hideStatus } from '@main/windows/status.js'
 
 // One central place to wire IPC. We deliberately keep handlers
 // thin — each one delegates into a service module so the IPC layer
@@ -181,11 +181,14 @@ export function registerIpc(): void {
 // Helper used by the global hotkey handler in main/index.ts to push
 // the "user pressed the dictation key" event into whichever window
 // is listening (Status pill primarily, Hub for in-app indicators).
+//
+// We rely on BrowserWindow.getAllWindows() including hidden windows,
+// which is how the Status pill receives `hotkey:down` even before its
+// first show — `webContents.send` is delivery-once-loaded, and the
+// preload bridge has already attached the `ipcRenderer.on` listener
+// by the time the window is constructed.
 export function broadcastDictationEvent(channel: string, payload?: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send(channel, payload)
   }
-  // Status window is hidden by default; broadcasting still reaches it
-  // because BrowserWindow.getAllWindows includes hidden windows.
-  void getStatusWindow
 }
