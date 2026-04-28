@@ -36,6 +36,13 @@ export type FlowApi = {
       record: DictationRecord
       pasted: boolean
     }>
+    streamStart(mimeType?: string): Promise<{ id: string }>
+    streamChunk(id: string, chunk: ArrayBuffer): void
+    streamStop(id: string): Promise<{
+      record: DictationRecord
+      pasted: boolean
+    }>
+    streamCancel(id: string): Promise<void>
   }
   status: {
     show(): Promise<void>
@@ -70,6 +77,14 @@ const api: FlowApi = {
   dictation: {
     run: (audio, mimeType) =>
       ipcRenderer.invoke('dictation:run', { audio, mimeType }),
+    streamStart: mimeType =>
+      ipcRenderer.invoke('dictation:stream-start', { mimeType }),
+    streamChunk: (id, chunk) =>
+      ipcRenderer.send('dictation:stream-chunk', { id, chunk }),
+    streamStop: id =>
+      ipcRenderer.invoke('dictation:stream-stop', { id }),
+    streamCancel: id =>
+      ipcRenderer.invoke('dictation:stream-cancel', { id }),
   },
   status: {
     show: () => ipcRenderer.invoke('status:show'),

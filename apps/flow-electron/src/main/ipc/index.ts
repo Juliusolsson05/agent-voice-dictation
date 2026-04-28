@@ -17,7 +17,13 @@ import {
   deleteRecent,
   clearRecents,
 } from '@main/services/recentsStore.js'
-import { runDictation } from '@main/services/dictationController.js'
+import {
+  cancelStreamingDictation,
+  pushStreamingDictationChunk,
+  runDictation,
+  startStreamingDictation,
+  stopStreamingDictation,
+} from '@main/services/dictationController.js'
 import { registerConfiguredHotkey } from '@main/services/hotkey.js'
 import { getStatusWindow, showStatus, hideStatus } from '@main/windows/status.js'
 
@@ -93,6 +99,33 @@ export function registerIpc(): void {
         ? { audio: params.audio, mimeType: params.mimeType }
         : { audio: params.audio }
       return runDictation(opts)
+    },
+  )
+  ipcMain.handle(
+    'dictation:stream-start',
+    async (_e, params: { mimeType?: string }) => {
+      return startStreamingDictation(params?.mimeType)
+    },
+  )
+  ipcMain.on(
+    'dictation:stream-chunk',
+    (_e, params: { id: string; chunk: ArrayBuffer }) => {
+      if (!params?.id || !params.chunk) return
+      pushStreamingDictationChunk(params.id, params.chunk)
+    },
+  )
+  ipcMain.handle(
+    'dictation:stream-stop',
+    async (_e, params: { id: string }) => {
+      if (!params?.id) throw new Error('dictation:stream-stop requires id')
+      return stopStreamingDictation(params.id)
+    },
+  )
+  ipcMain.handle(
+    'dictation:stream-cancel',
+    async (_e, params: { id: string }) => {
+      if (!params?.id) return
+      cancelStreamingDictation(params.id)
     },
   )
 

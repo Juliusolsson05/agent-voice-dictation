@@ -1,6 +1,7 @@
 import { clipboard } from 'electron'
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import WebSocket from 'ws'
 
 import {
   transcribeAssemblyAi,
@@ -56,6 +57,25 @@ const SECRET_IDS: Record<SttProviderId, string> = {
 }
 
 const DEEPSEEK_POLISH_TEMPORARILY_DISABLED = true
+const DEEPGRAM_STREAM_MODEL = 'flux-general-en'
+const streamingSessions = new Map<string, StreamingSession>()
+
+type StreamingSession = {
+  id: string
+  startedAt: number
+  mimeType: string | undefined
+  ws: WebSocket
+  opened: boolean
+  stopped: boolean
+  queuedChunks: Buffer[]
+  chunkCount: number
+  audioBytes: number
+  finalTexts: string[]
+  interimText: string
+  resolve: (outcome: DictationOutcome) => void
+  reject: (err: Error) => void
+  done: Promise<DictationOutcome>
+}
 
 export async function transcribeForProvider(
   provider: SttProviderId,
@@ -92,6 +112,160 @@ export async function transcribeForProvider(
       return transcribeGladia({}, baseOpts)
     case 'elevenlabs':
       return transcribeElevenLabs({}, baseOpts)
+  }
+}
+
+export async function startStreamingDictation(mimeType?: string): Promise<{ id: string }> {
+  const id = randomUUID()
+  const startedAt = Date.now()
+  const settings = await loadSettings()
+  const apiKey = await getSecret(SECRET_IDS.deepgram)
+    ?? await getSttApiKeyFromEnv('deepgram')
+  if (!apiKey) {
+    throw new Error('No API key configured for provider "deepgram"')
+  }
+
+  const url = new URL('wss://api.deepgram.com/v2/listen')
+  url.searchParams.set('model', DEEPGRAM_STREAM_MODEL)
+  url.searchParams.set('language', 'en')
+  url.searchParams.set('smart_format', 'true')
+
+  // Flux is the streaming provider path for the Electron app. The old
+  // MediaRecorder blob upload path cannot hit sub-second latency because upload
+  // + job creation already exceeds the budget. We keep the WebSocket in main so
+  // the Deepgram key never crosses into the renderer; the renderer only streams
+  // opaque audio chunks over IPC.
+  const ws = new WebSocket(url, {
+    headers: {
+      Authorization: `Token ${apiKey}`,
+    },
+  })
+
+  let resolveDone!: (outcome: DictationOutcome) => void
+  let rejectDone!: (err: Error) => void
+  const session: StreamingSession = {
+    id,
+    startedAt,
+    mimeType,
+    ws,
+    opened: false,
+    stopped: false,
+    queuedChunks: [],
+    chunkCount: 0,
+    audioBytes: 0,
+    finalTexts: [],
+    interimText: '',
+    resolve: outcome => resolveDone(outcome),
+    reject: err => rejectDone(err),
+    done: new Promise<DictationOutcome>((resolve, reject) => {
+      resolveDone = resolve
+      rejectDone = reject
+    }),
+  }
+  streamingSessions.set(id, session)
+
+  logDictationTrace('stream:start', {
+    runId: id,
+    provider: 'deepgram',
+    model: DEEPGRAM_STREAM_MODEL,
+    mimeType: mimeType ?? null,
+  })
+
+  ws.on('open', () => {
+    session.opened = true
+    logDictationTrace('deepgram:open', {
+      runId: id,
+      ms: Date.now() - startedAt,
+      queuedChunks: session.queuedChunks.length,
+    })
+    for (const chunk of session.queuedChunks.splice(0)) {
+      ws.send(chunk)
+    }
+  })
+
+  ws.on('message', data => {
+    handleDeepgramMessage(session, data)
+  })
+
+  ws.on('error', err => {
+    logDictationTrace('deepgram:error', {
+      runId: id,
+      message: err.message,
+    })
+    rejectStreamingSession(session, err)
+  })
+
+  ws.on('close', (code, reason) => {
+    logDictationTrace('deepgram:close', {
+      runId: id,
+      ms: Date.now() - startedAt,
+      code,
+      reason: reason.toString(),
+      finalChars: session.finalTexts.join(' ').trim().length,
+      interimChars: session.interimText.trim().length,
+    })
+    if (session.stopped) {
+      void finalizeStreamingSession(session, settings)
+    }
+  })
+
+  return { id }
+}
+
+export function pushStreamingDictationChunk(id: string, chunk: ArrayBuffer): void {
+  const session = streamingSessions.get(id)
+  if (!session || session.stopped) return
+  const buffer = Buffer.from(chunk)
+  if (!buffer.length) return
+
+  session.chunkCount += 1
+  session.audioBytes += buffer.byteLength
+
+  if (session.opened && session.ws.readyState === WebSocket.OPEN) {
+    session.ws.send(buffer)
+  } else {
+    session.queuedChunks.push(buffer)
+  }
+}
+
+export async function stopStreamingDictation(id: string): Promise<DictationOutcome> {
+  const session = streamingSessions.get(id)
+  if (!session) throw new Error(`No active streaming dictation session "${id}"`)
+  if (session.stopped) return session.done
+  session.stopped = true
+
+  logDictationTrace('stream:stop', {
+    runId: id,
+    chunkCount: session.chunkCount,
+    audioBytes: session.audioBytes,
+    ms: Date.now() - session.startedAt,
+  })
+
+  if (session.ws.readyState === WebSocket.OPEN) {
+    // Deepgram's WebSocket API supports a CloseStream control message to flush
+    // final transcripts. Closing the socket without it can drop the last turn,
+    // which is exactly the text a dictation user cares about most.
+    session.ws.send(JSON.stringify({ type: 'CloseStream' }))
+  } else if (session.ws.readyState === WebSocket.CONNECTING) {
+    session.ws.once('open', () => {
+      session.ws.send(JSON.stringify({ type: 'CloseStream' }))
+    })
+  } else {
+    void finalizeStreamingSession(session, await loadSettings())
+  }
+
+  return session.done
+}
+
+export function cancelStreamingDictation(id: string): void {
+  const session = streamingSessions.get(id)
+  if (!session) return
+  streamingSessions.delete(id)
+  session.stopped = true
+  try {
+    session.ws.close()
+  } catch {
+    /* noop */
   }
 }
 
@@ -245,6 +419,126 @@ export async function runDictation(input: DictationInput): Promise<DictationOutc
   })
 
   return { record, pasted }
+}
+
+function handleDeepgramMessage(session: StreamingSession, data: WebSocket.RawData): void {
+  const raw = data.toString()
+  let message: Record<string, unknown>
+  try {
+    message = JSON.parse(raw) as Record<string, unknown>
+  } catch {
+    logDictationTrace('deepgram:message:raw', {
+      runId: session.id,
+      bytes: raw.length,
+    })
+    return
+  }
+
+  const transcript = extractDeepgramTranscript(message)
+  const isFinal = message.is_final === true || message.speech_final === true
+  const type = typeof message.type === 'string' ? message.type : null
+
+  if (transcript) {
+    if (isFinal) {
+      session.finalTexts.push(transcript)
+    } else {
+      session.interimText = transcript
+    }
+  }
+
+  if (transcript || type) {
+    logDictationTrace('deepgram:message', {
+      runId: session.id,
+      type,
+      isFinal,
+      transcriptChars: transcript.length,
+      elapsedMs: Date.now() - session.startedAt,
+    })
+  }
+}
+
+function extractDeepgramTranscript(message: Record<string, unknown>): string {
+  const channel = message.channel as Record<string, unknown> | undefined
+  const alternatives = channel?.alternatives as unknown[] | undefined
+  const first = alternatives?.[0] as Record<string, unknown> | undefined
+  return typeof first?.transcript === 'string' ? first.transcript.trim() : ''
+}
+
+async function finalizeStreamingSession(
+  session: StreamingSession,
+  settings: AppSettings,
+): Promise<void> {
+  if (!streamingSessions.has(session.id)) return
+  streamingSessions.delete(session.id)
+
+  try {
+    const sttDoneAt = Date.now()
+    const raw = session.finalTexts.join(' ').replace(/\s+/g, ' ').trim()
+      || session.interimText.trim()
+
+    logDictationTrace('deepgram:complete', {
+      runId: session.id,
+      sttMs: sttDoneAt - session.startedAt,
+      chunkCount: session.chunkCount,
+      audioBytes: session.audioBytes,
+      textChars: raw.length,
+      usedInterimFallback: !session.finalTexts.length && Boolean(session.interimText.trim()),
+    })
+
+    const polish = await maybePolish(raw, settings)
+    const polishDoneAt = Date.now()
+    const finalText = polish.polished ?? raw
+
+    logDictationTrace('polish:done', {
+      runId: session.id,
+      polishMs: polishDoneAt - sttDoneAt,
+      polishEnabled: settings.polishEnabled,
+      polishBypassed: DEEPSEEK_POLISH_TEMPORARILY_DISABLED,
+      model: polish.model,
+      polishedChars: polish.polished?.length ?? 0,
+    })
+
+    clipboard.writeText(finalText)
+    const pasteStartedAt = Date.now()
+    let pasted = false
+    if (settings.autoPasteAtCursor) {
+      await pasteAtCursor()
+      pasted = process.platform === 'darwin'
+    }
+    const pasteDoneAt = Date.now()
+
+    const record: DictationRecord = {
+      id: session.id,
+      ts: session.startedAt,
+      raw,
+      polished: polish.polished,
+      provider: 'deepgram',
+      model: DEEPGRAM_STREAM_MODEL,
+      durationMs: pasteDoneAt - session.startedAt,
+    }
+    await appendRecent(record)
+    const doneAt = Date.now()
+
+    logDictationTrace('done', {
+      runId: session.id,
+      totalMs: doneAt - session.startedAt,
+      sttMs: sttDoneAt - session.startedAt,
+      polishMs: polishDoneAt - sttDoneAt,
+      pasteMs: pasteDoneAt - pasteStartedAt,
+      persistMs: doneAt - pasteDoneAt,
+      pasted,
+      finalChars: finalText.length,
+    })
+
+    session.resolve({ record, pasted })
+  } catch (err) {
+    rejectStreamingSession(session, err)
+  }
+}
+
+function rejectStreamingSession(session: StreamingSession, err: unknown): void {
+  streamingSessions.delete(session.id)
+  session.reject(err instanceof Error ? err : new Error(String(err)))
 }
 
 function logProviderTrace(runId: string, event: SpeechTraceEvent): void {

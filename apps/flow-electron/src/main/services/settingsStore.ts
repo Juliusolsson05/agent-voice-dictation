@@ -57,7 +57,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoPasteAtCursor: true,
   playSounds: false,
   handsFreeMode: false,
-  sttProvider: 'assemblyai',
+  sttProvider: 'deepgram',
   polishEnabled: false,
   openrouterModel: 'deepseek/deepseek-v4-flash',
   statusWindowPosition: null,
@@ -77,6 +77,11 @@ function coerceSettings(value: unknown): AppSettings {
     ...DEFAULT_SETTINGS,
     ...partial,
     v: 1,
+    // The desktop app's active v1 path is Deepgram streaming. Batch providers
+    // stay in the package for tests/fallbacks, but letting an old settings file
+    // keep `assemblyai` would silently route users back to the 3-5s upload/job
+    // path that cannot hit the sub-second target.
+    sttProvider: 'deepgram',
     // Force all existing settings files back to English. We previously allowed
     // free-form BCP-47 codes, which let an old `sv` value reach AssemblyAI and
     // fail Universal-3 Pro with "sv is not currently supported". V1 is an

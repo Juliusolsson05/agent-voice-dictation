@@ -28,8 +28,9 @@ export function App() {
   const [error, setError] = useState<string | null>(null)
   const [handsFree, setHandsFree] = useState(false)
   const recRef = useRef<MediaRecorder | null>(null)
+  const streamSessionIdRef = useRef<string | null>(null)
+  const pendingChunkSendsRef = useRef<Promise<void>[]>([])
   const streamRef = useRef<MediaStream | null>(null)
-  const chunksRef = useRef<Blob[]>([])
   const audioCtxRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const rafRef = useRef<number | null>(null)
@@ -88,17 +89,31 @@ export function App() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       streamRef.current = stream
       const mimeType = pickRecordingMimeType()
+      const streamSession = await window.flow.dictation.streamStart(mimeType || undefined)
+      streamSessionIdRef.current = streamSession.id
       // eslint-disable-next-line no-console
-      console.log('[status] starting recorder', { mimeType })
+      console.log('[status] starting streaming recorder', {
+        mimeType,
+        streamSessionId: streamSession.id,
+      })
       const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
-      chunksRef.current = []
+      pendingChunkSendsRef.current = []
       rec.addEventListener('dataavailable', evt => {
         // eslint-disable-next-line no-console
         console.log('[status] recorder chunk', {
           size: evt.data.size,
           type: evt.data.type,
         })
-        if (evt.data.size > 0) chunksRef.current.push(evt.data)
+        const sessionId = streamSessionIdRef.current
+        if (evt.data.size > 0 && sessionId) {
+          const pending = evt.data.arrayBuffer().then(buffer => {
+            window.flow.dictation.streamChunk(sessionId, buffer)
+          })
+          pendingChunkSendsRef.current.push(pending)
+          void pending.finally(() => {
+            pendingChunkSendsRef.current = pendingChunkSendsRef.current.filter(item => item !== pending)
+          })
+        }
       })
       rec.addEventListener('error', evt => {
         // eslint-disable-next-line no-console
@@ -113,24 +128,14 @@ export function App() {
         streamRef.current = null
         stopMeter()
 
-        const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'audio/webm' })
-        // eslint-disable-next-line no-console
-        console.log('[status] recorder stopped', {
-          chunks: chunksRef.current.length,
-          blobSize: blob.size,
-          blobType: blob.type,
-        })
-        chunksRef.current = []
-        if (blob.size === 0) {
-          setError('No audio captured')
-          setState('error')
-          window.setTimeout(() => void window.flow.status.hide(), 2600)
-          return
-        }
+        const sessionId = streamSessionIdRef.current
+        streamSessionIdRef.current = null
         setState('transcribing')
         try {
-          const buf = await blob.arrayBuffer()
-          await window.flow.dictation.run(buf, blob.type)
+          if (!sessionId) throw new Error('No active Deepgram stream')
+          await Promise.allSettled(pendingChunkSendsRef.current)
+          pendingChunkSendsRef.current = []
+          await window.flow.dictation.streamStop(sessionId)
         } catch (err) {
           const message = (err as Error)?.message ?? String(err)
           // eslint-disable-next-line no-console
@@ -145,7 +150,11 @@ export function App() {
         setState('idle')
         await window.flow.status.hide()
       })
-      rec.start(100)
+      // Deepgram Flux recommends low-latency streaming chunks. 80ms is small
+      // enough for turn detection to stay responsive while still using
+      // MediaRecorder's WebM/Opus container path instead of writing an
+      // AudioWorklet resampler in v1.
+      rec.start(80)
       recRef.current = rec
       setState('recording')
       setError(null)
@@ -170,7 +179,10 @@ export function App() {
   const cancelRecording = useCallback(() => {
     // Cancel discards the buffer entirely and hides the pill. Used
     // by the X button in hands-free mode.
-    chunksRef.current = []
+    const sessionId = streamSessionIdRef.current
+    streamSessionIdRef.current = null
+    pendingChunkSendsRef.current = []
+    if (sessionId) void window.flow.dictation.streamCancel(sessionId)
     const rec = recRef.current
     if (rec && rec.state !== 'inactive') {
       try {
