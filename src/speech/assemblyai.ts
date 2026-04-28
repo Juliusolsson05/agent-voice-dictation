@@ -139,11 +139,14 @@ export async function transcribeAssemblyAi(
 function nonEmptySpeechModels(speechModels: string[] | undefined): string[] {
   if (speechModels?.length) return speechModels
 
-  // Universal-3 Pro gives the best current AssemblyAI quality for the languages
-  // it supports, while Universal-2 is the broad fallback. We keep both in the
-  // default array so callers get provider-side routing without having to know
-  // the compatibility matrix.
-  return ['universal-3-pro', 'universal-2']
+  // Default the package to the faster async model. Universal-3 Pro is the
+  // quality-first AssemblyAI model and is the right choice for offline notes,
+  // long recordings, or hard audio, but it made the Electron dictation loop feel
+  // painfully slow because our current UX is batch upload -> create job -> poll.
+  // Until the app moves to the streaming `u3-rt-pro` path, v1 should optimize
+  // for perceived latency. Callers can still opt into Pro with
+  // `speechModels: ['universal-3-pro', 'universal-2']` when quality matters more.
+  return ['universal-2']
 }
 
 function normalizeAssemblyAi(result: AssemblyAiTranscriptResponse): SpeechTranscript {
