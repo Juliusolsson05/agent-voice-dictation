@@ -52,11 +52,23 @@ export type TranscribeOptions = {
   audio: AudioInput
   signal?: AbortSignal | undefined
   language?: string | undefined
+  /** Optional diagnostic hook for host apps that need provider-internal latency
+   *  without coupling to provider-specific response payloads. The Electron app
+   *  uses this to print terminal logs from the main process while keeping the
+   *  reusable STT clients free of Electron-specific logging decisions. */
+  onTrace?: ((event: SpeechTraceEvent) => void) | undefined
   /** Provider-specific knobs live behind a loose object on purpose.
    *  V1 should not normalize every option across providers because
    *  that creates fake portability. Callers can use this for model
    *  names, diarization flags, keyterms, and similar escape hatches. */
   providerOptions?: Record<string, unknown> | undefined
+}
+
+export type SpeechTraceEvent = {
+  provider: SpeechProviderId
+  phase: string
+  ms?: number
+  [key: string]: unknown
 }
 
 export type SpeechProvider = {

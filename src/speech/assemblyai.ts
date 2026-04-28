@@ -1,6 +1,12 @@
 import { assertApiKey, readErrorBody, SpeechProviderError } from './errors.js'
 import { audioToBody, numberMs } from './http.js'
-import type { SpeechProvider, SpeechTranscript, TranscribeOptions } from './types.js'
+import type { SpeechProvider, SpeechTraceEvent, SpeechTranscript, TranscribeOptions } from './types.js'
+
+type AssemblyAiTraceEvent = {
+  phase: string
+  ms?: number
+  [key: string]: unknown
+}
 
 type AssemblyAiTranscriptResponse = {
   id: string
@@ -50,16 +56,24 @@ export async function transcribeAssemblyAi(
   assertApiKey('assemblyai', options.apiKey)
   const baseUrl = providerOptions.baseUrl ?? 'https://api.assemblyai.com'
   const headers = { authorization: options.apiKey }
+  const speechModels = nonEmptySpeechModels(providerOptions.speechModels)
+  const totalStartedAt = Date.now()
 
   // AssemblyAI's batch API is upload-url-first unless the caller
   // already has a public `audio_url`. Host apps usually have a local
   // MediaRecorder blob, so v1 owns the upload step here and keeps the
   // public package API simple: bytes in, transcript out.
+  const uploadStartedAt = Date.now()
   const upload = await fetch(`${baseUrl}/v2/upload`, {
     method: 'POST',
     headers,
     body: audioToBody(options.audio),
     signal: options.signal ?? null,
+  })
+  trace(options, {
+    phase: 'upload',
+    ms: Date.now() - uploadStartedAt,
+    status: upload.status,
   })
   if (!upload.ok) {
     throw new SpeechProviderError('assemblyai', 'AssemblyAI upload failed', {
@@ -74,6 +88,7 @@ export async function transcribeAssemblyAi(
     })
   }
 
+  const createStartedAt = Date.now()
   const create = await fetch(`${baseUrl}/v2/transcript`, {
     method: 'POST',
     headers: {
@@ -88,12 +103,19 @@ export async function transcribeAssemblyAi(
       // `speech_models` on every request, as a priority-ordered array, so keep
       // the package boundary aligned with the provider contract instead of
       // letting each host app remember this migration detail.
-      speech_models: nonEmptySpeechModels(providerOptions.speechModels),
+      speech_models: speechModels,
       language_detection: providerOptions.languageDetection ?? !options.language,
       language_code: options.language,
       speaker_labels: providerOptions.speakerLabels ?? false,
     }),
     signal: options.signal ?? null,
+  })
+  trace(options, {
+    phase: 'create',
+    ms: Date.now() - createStartedAt,
+    status: create.status,
+    speechModels,
+    language: options.language ?? null,
   })
   if (!create.ok) {
     throw new SpeechProviderError('assemblyai', 'AssemblyAI transcript creation failed', {
@@ -111,29 +133,63 @@ export async function transcribeAssemblyAi(
   const started = Date.now()
   const pollIntervalMs = providerOptions.pollIntervalMs ?? 1500
   const timeoutMs = providerOptions.timeoutMs ?? 120_000
+  let pollCount = 0
   for (;;) {
     if (Date.now() - started > timeoutMs) {
       throw new SpeechProviderError('assemblyai', 'AssemblyAI transcript polling timed out')
     }
     await sleep(pollIntervalMs, options.signal)
+    const pollStartedAt = Date.now()
     const poll = await fetch(`${baseUrl}/v2/transcript/${created.id}`, {
       headers,
       signal: options.signal ?? null,
     })
+    pollCount += 1
+    const pollMs = Date.now() - pollStartedAt
     if (!poll.ok) {
+      trace(options, {
+        phase: 'poll',
+        ms: pollMs,
+        pollCount,
+        status: poll.status,
+      })
       throw new SpeechProviderError('assemblyai', 'AssemblyAI transcript poll failed', {
         status: poll.status,
         details: await readErrorBody(poll),
       })
     }
     const result = await poll.json() as AssemblyAiTranscriptResponse
+    trace(options, {
+      phase: 'poll',
+      ms: pollMs,
+      pollCount,
+      status: result.status,
+    })
     if (result.status === 'error') {
       throw new SpeechProviderError('assemblyai', result.error ?? 'AssemblyAI transcript failed', {
         details: result,
       })
     }
-    if (result.status === 'completed') return normalizeAssemblyAi(result)
+    if (result.status === 'completed') {
+      trace(options, {
+        phase: 'complete',
+        ms: Date.now() - totalStartedAt,
+        pollCount,
+        audioDurationMs: numberMs(result.audio_duration),
+        textChars: (result.text ?? '').length,
+        speechModelUsed: (result as Record<string, unknown>).speech_model_used ?? null,
+      })
+      return normalizeAssemblyAi(result)
+    }
   }
+}
+
+function trace(options: TranscribeOptions, event: AssemblyAiTraceEvent): void {
+  const payload: SpeechTraceEvent = {
+    provider: 'assemblyai',
+    ...event,
+  }
+  options.onTrace?.(payload)
 }
 
 function nonEmptySpeechModels(speechModels: string[] | undefined): string[] {

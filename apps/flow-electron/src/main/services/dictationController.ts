@@ -8,6 +8,7 @@ import {
   transcribeOpenAi,
   transcribeGladia,
   transcribeElevenLabs,
+  type SpeechTraceEvent,
   type SpeechTranscript,
 } from 'agent-voice-dictation'
 import { polishTranscriptWithOpenRouter } from 'agent-voice-dictation'
@@ -62,6 +63,7 @@ export async function transcribeForProvider(
   audio: ArrayBuffer,
   mimeType: string | undefined,
   language: string,
+  onTrace: (event: SpeechTraceEvent) => void,
 ): Promise<SpeechTranscript> {
   // Each provider has its own client because their request shapes
   // are not standardized. The `agent-voice-dictation` package
@@ -77,6 +79,7 @@ export async function transcribeForProvider(
       ...(mimeType ? { mimeType } : {}),
     },
     language,
+    onTrace,
   }
   switch (provider) {
     case 'assemblyai':
@@ -161,7 +164,13 @@ function pasteAtCursor(): Promise<void> {
 }
 
 export async function runDictation(input: DictationInput): Promise<DictationOutcome> {
+  const runId = randomUUID()
   const startedAt = Date.now()
+  logDictationTrace('start', {
+    runId,
+    audioBytes: input.audio.byteLength,
+    mimeType: input.mimeType ?? null,
+  })
   const settings = await loadSettings()
   const apiKey = await getSecret(SECRET_IDS[settings.sttProvider])
     ?? await getSttApiKeyFromEnv(settings.sttProvider)
@@ -175,11 +184,28 @@ export async function runDictation(input: DictationInput): Promise<DictationOutc
     input.audio,
     input.mimeType,
     'en',
+    event => logProviderTrace(runId, event),
   )
   const sttDoneAt = Date.now()
+  logDictationTrace('stt:done', {
+    runId,
+    provider: settings.sttProvider,
+    sttMs: sttDoneAt - startedAt,
+    transcriptChars: transcript.text.length,
+    transcriptLanguage: transcript.language ?? null,
+    audioDurationMs: transcript.durationMs ?? null,
+  })
 
   const polish = await maybePolish(transcript.text, settings)
   const polishDoneAt = Date.now()
+  logDictationTrace('polish:done', {
+    runId,
+    polishMs: polishDoneAt - sttDoneAt,
+    polishEnabled: settings.polishEnabled,
+    polishBypassed: DEEPSEEK_POLISH_TEMPORARILY_DISABLED,
+    model: polish.model,
+    polishedChars: polish.polished?.length ?? 0,
+  })
 
   const finalText = polish.polished ?? transcript.text
 
@@ -188,14 +214,16 @@ export async function runDictation(input: DictationInput): Promise<DictationOutc
   // wrong focused app), the text is still on the clipboard for a
   // manual ⌘V.
   clipboard.writeText(finalText)
+  const pasteStartedAt = Date.now()
   let pasted = false
   if (settings.autoPasteAtCursor) {
     await pasteAtCursor()
     pasted = process.platform === 'darwin'
   }
+  const pasteDoneAt = Date.now()
 
   const record: DictationRecord = {
-    id: randomUUID(),
+    id: runId,
     ts: startedAt,
     raw: transcript.text,
     polished: polish.polished,
@@ -204,10 +232,39 @@ export async function runDictation(input: DictationInput): Promise<DictationOutc
     durationMs: polishDoneAt - startedAt,
   }
   await appendRecent(record)
+  const doneAt = Date.now()
+  logDictationTrace('done', {
+    runId,
+    totalMs: doneAt - startedAt,
+    sttMs: sttDoneAt - startedAt,
+    polishMs: polishDoneAt - sttDoneAt,
+    pasteMs: pasteDoneAt - pasteStartedAt,
+    persistMs: doneAt - pasteDoneAt,
+    pasted,
+    finalChars: finalText.length,
+  })
 
-  // sttDoneAt is computed but not currently surfaced — keeping it
-  // around so a future Insights panel (NOT in v1) can break out
-  // STT vs polish latency without re-instrumenting.
-  void sttDoneAt
   return { record, pasted }
+}
+
+function logProviderTrace(runId: string, event: SpeechTraceEvent): void {
+  logDictationTrace(`${event.provider}:${event.phase}`, {
+    runId,
+    ...withoutProviderPhase(event),
+  })
+}
+
+function withoutProviderPhase(event: SpeechTraceEvent): Record<string, unknown> {
+  const { provider: _provider, phase: _phase, ...rest } = event
+  return rest
+}
+
+function logDictationTrace(phase: string, details: Record<string, unknown>): void {
+  // Keep this as one JSON-ish line per phase so terminal logs from `npm start`
+  // can be grepped, copied into issues, or compared between providers. These
+  // logs intentionally live in main, not the renderer, because renderer console
+  // output gets mixed with DevTools noise and does not reliably show provider
+  // timings from the package clients.
+  // eslint-disable-next-line no-console
+  console.log(`[dictation:trace] ${phase}`, details)
 }
