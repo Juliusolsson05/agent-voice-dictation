@@ -24,6 +24,8 @@ type State = 'idle' | 'recording' | 'transcribing' | 'error'
 type LifecycleState = State | 'starting' | 'stopping'
 
 const EMPTY_LEVELS = [0, 0, 0, 0, 0, 0, 0]
+const MIN_HOLD_TO_TRANSCRIBE_MS = 180
+const ERROR_VISIBLE_MS = 1800
 const VOICE_BANDS_HZ: Array<[number, number]> = [
   [120, 240],
   [240, 420],
@@ -44,8 +46,16 @@ export function App() {
   const lifecycleRef = useRef<LifecycleState>('idle')
   const pendingStopRef = useRef(false)
   const stoppingRef = useRef(false)
+  const discardStopRef = useRef(false)
   const streamSessionIdRef = useRef<string | null>(null)
+  const streamStartPromiseRef = useRef<Promise<void> | null>(null)
+  const errorResetTimerRef = useRef<number | null>(null)
+  const queuedAudioChunksRef = useRef<Array<{ index: number; buffer: ArrayBuffer; recordedAt: number }>>([])
   const pendingChunkSendsRef = useRef<Promise<void>[]>([])
+  const recordingGenerationRef = useRef(0)
+  const recordingStartedAtRef = useRef(0)
+  const hotkeyDownAtRef = useRef(0)
+  const chunkIndexRef = useRef(0)
   const streamRef = useRef<MediaStream | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
@@ -67,6 +77,42 @@ export function App() {
       audioCtxRef.current = null
     }
   }, [])
+
+  const resetToIdle = useCallback(() => {
+    if (errorResetTimerRef.current !== null) {
+      window.clearTimeout(errorResetTimerRef.current)
+      errorResetTimerRef.current = null
+    }
+    lifecycleRef.current = 'idle'
+    pendingStopRef.current = false
+    stoppingRef.current = false
+    discardStopRef.current = false
+    streamSessionIdRef.current = null
+    queuedAudioChunksRef.current = []
+    pendingChunkSendsRef.current = []
+    streamStartPromiseRef.current = null
+    recordingGenerationRef.current += 1
+    hotkeyDownAtRef.current = 0
+    setState('idle')
+    setError(null)
+  }, [])
+
+  const showTransientError = useCallback((message: string, err?: unknown) => {
+    // Error must be a visual event, not a terminal lifecycle state. The first
+    // version left `lifecycleRef` as "error", so every later hotkey press was
+    // ignored until the app was restarted. That is poison for a hold-to-talk
+    // tool where accidental taps and empty captures are normal. We flash the
+    // failure, clean up native resources, then return to idle so the next press
+    // is always a fresh attempt.
+    if (err) console.error('[status] dictation failed', err)
+    setError(message)
+    lifecycleRef.current = 'error'
+    setState('error')
+    errorResetTimerRef.current = window.setTimeout(() => {
+      resetToIdle()
+      void window.flow.status.hide()
+    }, ERROR_VISIBLE_MS)
+  }, [resetToIdle])
 
   const startMeter = useCallback((stream: MediaStream) => {
     // AudioContext + AnalyserNode is the cheapest accurate local meter. This is
@@ -127,33 +173,76 @@ export function App() {
 
   const startRecording = useCallback(async () => {
     if (lifecycleRef.current !== 'idle') return
+    hotkeyDownAtRef.current ||= Date.now()
     lifecycleRef.current = 'starting'
     pendingStopRef.current = false
     try {
+      const recordingGeneration = ++recordingGenerationRef.current
+      const startRequestedAt = Date.now()
+      console.log('[status:trace] start:begin', {
+        hotkeyToStartMs: startRequestedAt - hotkeyDownAtRef.current,
+      })
       const settings = await window.flow.settings.get()
       setHandsFree(settings.handsFreeMode)
+      console.log('[status:trace] settings:loaded', {
+        ms: Date.now() - startRequestedAt,
+        handsFreeMode: settings.handsFreeMode,
+      })
+      const gumStartedAt = Date.now()
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      console.log('[status:trace] get-user-media:done', {
+        ms: Date.now() - gumStartedAt,
+        tracks: stream.getAudioTracks().map(track => ({
+          label: track.label,
+          enabled: track.enabled,
+          muted: track.muted,
+          readyState: track.readyState,
+        })),
+      })
       streamRef.current = stream
       const mimeType = pickRecordingMimeType()
-      const streamSession = await window.flow.dictation.streamStart(mimeType || undefined)
-      streamSessionIdRef.current = streamSession.id
-      // eslint-disable-next-line no-console
-      console.log('[status] starting streaming recorder', {
-        mimeType,
-        streamSessionId: streamSession.id,
-      })
       const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
       stoppingRef.current = false
+      discardStopRef.current = false
       pendingChunkSendsRef.current = []
+      queuedAudioChunksRef.current = []
+      chunkIndexRef.current = 0
       rec.addEventListener('dataavailable', evt => {
-        // eslint-disable-next-line no-console
-        console.log('[status] recorder chunk', {
+        const chunkRecordedAt = Date.now()
+        const chunkIndex = ++chunkIndexRef.current
+        console.log('[status:trace] recorder:chunk', {
+          index: chunkIndex,
           size: evt.data.size,
           type: evt.data.type,
+          elapsedMs: chunkRecordedAt - recordingStartedAtRef.current,
         })
-        const sessionId = streamSessionIdRef.current
-        if (evt.data.size > 0 && sessionId) {
+        if (evt.data.size > 0) {
           const pending = evt.data.arrayBuffer().then(async buffer => {
+            if (recordingGeneration !== recordingGenerationRef.current) {
+              console.log('[status:trace] recorder:chunk:discard-stale', {
+                index: chunkIndex,
+                bytes: buffer.byteLength,
+                generation: recordingGeneration,
+                currentGeneration: recordingGenerationRef.current,
+              })
+              return
+            }
+            const sessionId = streamSessionIdRef.current
+            if (!sessionId) {
+              queuedAudioChunksRef.current.push({ index: chunkIndex, buffer, recordedAt: chunkRecordedAt })
+              console.log('[status:trace] recorder:chunk:queued-local', {
+                index: chunkIndex,
+                bytes: buffer.byteLength,
+                queuedLocal: queuedAudioChunksRef.current.length,
+              })
+              return
+            }
+            console.log('[status:trace] recorder:chunk:ipc-send', {
+              index: chunkIndex,
+              bytes: buffer.byteLength,
+              sessionId,
+              sendLagMs: Date.now() - chunkRecordedAt,
+            })
             await window.flow.dictation.streamChunk(sessionId, buffer)
           })
           pendingChunkSendsRef.current.push(pending)
@@ -165,9 +254,7 @@ export function App() {
       rec.addEventListener('error', evt => {
         // eslint-disable-next-line no-console
         console.error('[status] recorder error', evt.error)
-        setError(evt.error?.message ?? 'Recorder failed')
-        lifecycleRef.current = 'error'
-        setState('error')
+        showTransientError(evt.error?.message ?? 'Recorder failed', evt.error)
       })
       rec.addEventListener('stop', async () => {
         // The mic stream must be torn down BEFORE we await the
@@ -176,30 +263,29 @@ export function App() {
         streamRef.current = null
         stopMeter()
 
-        const sessionId = streamSessionIdRef.current
-        streamSessionIdRef.current = null
         stoppingRef.current = false
+        if (discardStopRef.current) {
+          console.log('[status:trace] recorder:stop:discarded')
+          resetToIdle()
+          void window.flow.status.hide()
+          return
+        }
         lifecycleRef.current = 'transcribing'
         setState('transcribing')
         try {
+          await streamStartPromiseRef.current
+          const sessionId = streamSessionIdRef.current
+          streamSessionIdRef.current = null
           if (!sessionId) throw new Error('No active Deepgram stream')
           await Promise.allSettled(pendingChunkSendsRef.current)
           pendingChunkSendsRef.current = []
           await window.flow.dictation.streamStop(sessionId)
         } catch (err) {
           const message = (err as Error)?.message ?? String(err)
-          // eslint-disable-next-line no-console
-          console.error('[status] dictation failed', err)
-          setError(message)
-          lifecycleRef.current = 'error'
-          setState('error')
-          // Leave the pill visible briefly on error so the user sees
-          // the red flash, then hide.
-          window.setTimeout(() => void window.flow.status.hide(), 3600)
+          showTransientError(message, err)
           return
         }
-        lifecycleRef.current = 'idle'
-        setState('idle')
+        resetToIdle()
         await window.flow.status.hide()
       })
       // Deepgram Flux recommends low-latency streaming chunks. 80ms is small
@@ -208,6 +294,48 @@ export function App() {
       // AudioWorklet resampler in v1.
       rec.start(80)
       recRef.current = rec
+      recordingStartedAtRef.current = Date.now()
+      console.log('[status:trace] recorder:started', {
+        mimeType,
+        startLatencyMs: recordingStartedAtRef.current - hotkeyDownAtRef.current,
+        localStartMs: recordingStartedAtRef.current - startRequestedAt,
+        state: rec.state,
+      })
+      const streamStartStartedAt = Date.now()
+      const streamStartPromise = window.flow.dictation.streamStart(mimeType || undefined)
+        .then(async streamSession => {
+          if (discardStopRef.current || recordingGeneration !== recordingGenerationRef.current) {
+            console.log('[status:trace] deepgram-session:discard-after-ready', {
+              streamSessionId: streamSession.id,
+              ms: Date.now() - streamStartStartedAt,
+              generation: recordingGeneration,
+              currentGeneration: recordingGenerationRef.current,
+            })
+            await window.flow.dictation.streamCancel(streamSession.id)
+            return
+          }
+          streamSessionIdRef.current = streamSession.id
+          console.log('[status:trace] deepgram-session:ready', {
+            streamSessionId: streamSession.id,
+            ms: Date.now() - streamStartStartedAt,
+            queuedLocal: queuedAudioChunksRef.current.length,
+          })
+          const queued = queuedAudioChunksRef.current.splice(0)
+          for (const queuedChunk of queued) {
+            console.log('[status:trace] recorder:chunk:ipc-send-queued', {
+              index: queuedChunk.index,
+              bytes: queuedChunk.buffer.byteLength,
+              sessionId: streamSession.id,
+              queueLagMs: Date.now() - queuedChunk.recordedAt,
+            })
+            await window.flow.dictation.streamChunk(streamSession.id, queuedChunk.buffer)
+          }
+        })
+        .finally(() => {
+          streamStartPromiseRef.current = null
+        })
+      streamStartPromiseRef.current = streamStartPromise
+      void streamStartPromise.catch(() => {})
       lifecycleRef.current = 'recording'
       setState('recording')
       setError(null)
@@ -220,12 +348,12 @@ export function App() {
       const message = (err as Error)?.message ?? String(err)
       // eslint-disable-next-line no-console
       console.error('[status] start recording failed', err)
-      setError(message)
-      lifecycleRef.current = 'error'
-      setState('error')
-      window.setTimeout(() => void window.flow.status.hide(), 3600)
+      streamRef.current?.getTracks().forEach(t => t.stop())
+      streamRef.current = null
+      stopMeter()
+      showTransientError(message, err)
     }
-  }, [startMeter, stopMeter])
+  }, [resetToIdle, showTransientError, startMeter, stopMeter])
 
   const stopRecording = useCallback(() => {
     if (lifecycleRef.current === 'starting') {
@@ -233,10 +361,26 @@ export function App() {
       return
     }
     if (lifecycleRef.current !== 'recording') return
+    const heldMs = hotkeyDownAtRef.current ? Date.now() - hotkeyDownAtRef.current : null
     const rec = recRef.current
     if (rec && rec.state !== 'inactive' && !stoppingRef.current) {
       lifecycleRef.current = 'stopping'
       stoppingRef.current = true
+      if (heldMs !== null && heldMs < MIN_HOLD_TO_TRANSCRIBE_MS) {
+        // Very short presses are almost always accidental key taps or "I hit
+        // the wrong hotkey" events. Sending those through Deepgram produces
+        // noisy "No speech detected" errors and can leave the user feeling like
+        // the app broke. Treat them as cancel/discard, but keep the trace so we
+        // can tune the threshold if it ever eats intentional short commands.
+        discardStopRef.current = true
+        console.log('[status:trace] recorder:short-press-discard', {
+          heldMs,
+          thresholdMs: MIN_HOLD_TO_TRANSCRIBE_MS,
+        })
+        const sessionId = streamSessionIdRef.current
+        streamSessionIdRef.current = null
+        if (sessionId) void window.flow.dictation.streamCancel(sessionId)
+      }
       // `MediaRecorder.stop()` should emit a final dataavailable event, but an
       // abrupt hotkey release can still race the encoder and our IPC close path.
       // Requesting data first gives Chromium one explicit chance to flush the
@@ -258,9 +402,11 @@ export function App() {
     const sessionId = streamSessionIdRef.current
     streamSessionIdRef.current = null
     stoppingRef.current = false
+    discardStopRef.current = true
     pendingChunkSendsRef.current = []
     if (sessionId) void window.flow.dictation.streamCancel(sessionId)
     const rec = recRef.current
+    const recorderWasActive = !!rec && rec.state !== 'inactive'
     if (rec && rec.state !== 'inactive') {
       try {
         rec.stop()
@@ -271,10 +417,11 @@ export function App() {
     streamRef.current?.getTracks().forEach(t => t.stop())
     streamRef.current = null
     stopMeter()
-    lifecycleRef.current = 'idle'
-    setState('idle')
-    void window.flow.status.hide()
-  }, [stopMeter])
+    if (!recorderWasActive) {
+      resetToIdle()
+      void window.flow.status.hide()
+    }
+  }, [resetToIdle, stopMeter])
 
   // macOS default is true hold-to-talk: the native helper emits explicit
   // press/release events because Electron's globalShortcut cannot represent the
@@ -283,17 +430,26 @@ export function App() {
   useEffect(() => {
     const offDown = window.flow.events.onHotkeyDown(() => {
       setVisible(true)
+      if (lifecycleRef.current === 'error') resetToIdle()
+      hotkeyDownAtRef.current = Date.now()
+      console.log('[status:trace] hotkey:down', { at: hotkeyDownAtRef.current })
       if (lifecycleRef.current === 'idle') {
         void startRecording()
       }
     })
     const offUp = window.flow.events.onHotkeyUp(() => {
+      console.log('[status:trace] hotkey:up', {
+        at: Date.now(),
+        heldMs: hotkeyDownAtRef.current ? Date.now() - hotkeyDownAtRef.current : null,
+        lifecycle: lifecycleRef.current,
+      })
       if (lifecycleRef.current === 'recording' || lifecycleRef.current === 'starting') {
         stopRecording()
       }
     })
     const offToggleFallback = window.flow.events.onHotkeyFired(() => {
       setVisible(true)
+      if (lifecycleRef.current === 'error') resetToIdle()
       if (lifecycleRef.current === 'idle') {
         void startRecording()
       } else if (lifecycleRef.current === 'recording' || lifecycleRef.current === 'starting') {
@@ -305,7 +461,7 @@ export function App() {
       offUp()
       offToggleFallback()
     }
-  }, [startRecording, stopRecording])
+  }, [resetToIdle, startRecording, stopRecording])
 
   useEffect(() => {
     const offOpening = window.flow.events.onStatusOpening(() => setVisible(true))

@@ -248,6 +248,13 @@ export async function runDictation(input: DictationInput): Promise<DictationOutc
   })
 
   const finalText = formatComposerText(polish.polished ?? transcript.text, settings)
+  logDictationTrace('transcript:final', {
+    runId,
+    rawChars: transcript.text.length,
+    finalChars: finalText.length,
+    raw: transcript.text,
+    finalText,
+  })
 
   // Clipboard write happens BEFORE the optional paste keystroke so
   // that even if the keystroke fails (no accessibility permission,
@@ -267,7 +274,6 @@ export async function runDictation(input: DictationInput): Promise<DictationOutc
     ts: startedAt,
     raw: transcript.text,
     polished: polish.polished,
-    finalText,
     provider: provider.id,
     model: polish.model,
     durationMs: polishDoneAt - startedAt,
@@ -315,6 +321,13 @@ async function finalizeDictationText({
   const polish = await maybePolish(raw, settings)
   const polishDoneAt = Date.now()
   const finalText = formatComposerText(polish.polished ?? raw, settings)
+  logDictationTrace('transcript:final', {
+    runId: id,
+    rawChars: raw.length,
+    finalChars: finalText.length,
+    raw,
+    finalText,
+  })
 
   logDictationTrace('polish:done', {
     runId: id,
@@ -339,7 +352,6 @@ async function finalizeDictationText({
     ts: startedAt,
     raw,
     polished: polish.polished,
-    finalText,
     provider,
     model: polish.model ?? model,
     durationMs: pasteDoneAt - startedAt,

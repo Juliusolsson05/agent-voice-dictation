@@ -10,6 +10,8 @@ type Props = {
   onOpenSettings: () => void
 }
 
+const STT_TAG_NOTE = 'Speech-to-text; may contain transcription mistakes.'
+
 // Home is the default page. It tells the user how to dictate, what
 // provider they're on, and shows the local recents list. Nothing else.
 //
@@ -29,7 +31,11 @@ export function Home({ settings, recents, onChanged, onOpenSettings }: Props) {
     <div style={pageStyle}>
       <Hero hotkey={hotkeyText} provider={provider} polish={polish} onOpenSettings={onOpenSettings} />
       <StatsPanel stats={stats} />
-      <RecentList recents={recents} onChanged={onChanged} />
+      <RecentList
+        recents={recents}
+        insertSttTag={settings?.insertSttTag ?? false}
+        onChanged={onChanged}
+      />
     </div>
   )
 }
@@ -119,9 +125,11 @@ function StatBlock({ label, value }: { label: string; value: string }) {
 
 function RecentList({
   recents,
+  insertSttTag,
   onChanged,
 }: {
   recents: DictationRecord[]
+  insertSttTag: boolean
   onChanged: () => Promise<void> | void
 }) {
   if (recents.length === 0) {
@@ -138,7 +146,13 @@ function RecentList({
       <h2 style={sectionHeadingStyle}>Recents</h2>
       <ul style={listStyle}>
         {recents.map((record, index) => (
-          <RecentRow key={record.id} record={record} index={index} onChanged={onChanged} />
+          <RecentRow
+            key={record.id}
+            record={record}
+            index={index}
+            insertSttTag={insertSttTag}
+            onChanged={onChanged}
+          />
         ))}
       </ul>
     </section>
@@ -148,22 +162,24 @@ function RecentList({
 function RecentRow({
   record,
   index,
+  insertSttTag,
   onChanged,
 }: {
   record: DictationRecord
   index: number
+  insertSttTag: boolean
   onChanged: () => Promise<void> | void
 }) {
   const [expanded, setExpanded] = useState(false)
-  const text = record.finalText ?? record.polished ?? record.raw
+  const text = displayTranscriptText(record)
   const preview = useMemo(() => {
     if (text.length <= 100) return text
     return text.slice(0, 100) + '…'
   }, [text])
 
   const copy = useCallback(async () => {
-    await navigator.clipboard.writeText(text)
-  }, [text])
+    await navigator.clipboard.writeText(insertSttTag ? formatSttTag(text) : text)
+  }, [insertSttTag, text])
 
   const remove = useCallback(async () => {
     await window.flow.recents.delete(record.id)
@@ -215,25 +231,67 @@ function fmtTime(ts: number): string {
 
 function calculateStats(recents: DictationRecord[]): DictationStats {
   const words = recents.reduce((sum, record) => {
-    const text = record.finalText ?? record.polished ?? record.raw
-    return sum + countWords(stripSttTag(text))
+    return sum + countWords(displayTranscriptText(record))
   }, 0)
-  const totalAudioMs = recents.reduce((sum, record) => {
-    const audioMs = typeof record.audioDurationMs === 'number' ? record.audioDurationMs : 0
-    return sum + Math.max(0, audioMs)
-  }, 0)
+  let wpmWords = 0
+  let totalAudioMs = 0
+  for (const record of recents) {
+    const recordWords = countWords(displayTranscriptText(record))
+    const audioMs = normalizedAudioDurationMs(record, recordWords)
+    if (audioMs <= 0) continue
+    wpmWords += recordWords
+    totalAudioMs += audioMs
+  }
 
   // WPM is based on provider-reported audio duration when available, not total
   // wall-clock pipeline duration. The latter includes network/upload/paste time
   // and would punish slower providers instead of describing how fast the user
   // actually spoke.
-  const averageWpm = totalAudioMs > 0 ? words / (totalAudioMs / 60_000) : 0
+  const averageWpm = totalAudioMs > 0 ? wpmWords / (totalAudioMs / 60_000) : 0
   return {
     sessions: recents.length,
     words,
     averageWpm,
     totalAudioMs,
   }
+}
+
+function normalizedAudioDurationMs(record: DictationRecord, words: number): number {
+  const audioMs = typeof record.audioDurationMs === 'number' ? record.audioDurationMs : 0
+  if (!audioMs) return 0
+
+  // Early AssemblyAI records stored `audio_duration` as milliseconds even
+  // though the provider returns seconds. That made 17 seconds look like 17ms
+  // and inflated WPM into nonsense. Keep the UI resilient for existing recents:
+  // if "audio" is implausibly tiny compared with the full pipeline duration,
+  // treat that value as seconds from the legacy bug.
+  if (audioMs < 1000 && record.durationMs > 1000 && record.durationMs / audioMs > 100) {
+    const repaired = audioMs * 1000
+    return isPlausibleSpeechRate(words, repaired) ? repaired : 0
+  }
+  return isPlausibleSpeechRate(words, audioMs) ? audioMs : 0
+}
+
+function isPlausibleSpeechRate(words: number, audioMs: number): boolean {
+  if (words <= 0 || audioMs < 400) return false
+  const wpm = words / (audioMs / 60_000)
+
+  // Human speech can be fast, but 1000+ WPM means the duration metadata is
+  // corrupt or came from our early unit bug. Do not let one bad record poison
+  // the dashboard; keep the transcript in history, just exclude it from WPM.
+  return wpm > 20 && wpm < 420
+}
+
+function displayTranscriptText(record: DictationRecord): string {
+  // The history is a transcript history, not a composer-output history. Older
+  // builds briefly persisted `finalText`, which could include the STT wrapper.
+  // Strip that legacy wrapper for display/stats, and only re-add it when the
+  // user explicitly copies from history with the setting enabled.
+  return stripSttTag(record.polished ?? record.raw)
+}
+
+function formatSttTag(text: string): string {
+  return `<stt note="${STT_TAG_NOTE}">\n${text}\n</stt>`
 }
 
 function stripSttTag(text: string): string {

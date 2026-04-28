@@ -112,6 +112,14 @@ export function registerIpc(): void {
   ipcMain.handle(
     'dictation:stream-start',
     async (_e, params: { mimeType?: string }) => {
+      // Main-side trace for the renderer-to-provider bridge. Renderer console
+      // logs are easy to lose in Electron; these terminal logs prove exactly
+      // when IPC entered main and which stream id later receives chunks.
+      // eslint-disable-next-line no-console
+      console.log('[dictation:ipc] stream-start:request', {
+        mimeType: params?.mimeType ?? null,
+        at: Date.now(),
+      })
       return startStreamingDictation(params?.mimeType)
     },
   )
@@ -119,6 +127,16 @@ export function registerIpc(): void {
     'dictation:stream-chunk',
     (_e, params: { id: string; chunk: ArrayBuffer }) => {
       if (!params?.id || !params.chunk) return { ok: true }
+      // One line per chunk is intentionally verbose right now. We are debugging
+      // start/end truncation, and aggregate byte totals are not enough to prove
+      // whether the renderer recorded a chunk, IPC delivered it, or the
+      // provider adapter dropped it before WebSocket send.
+      // eslint-disable-next-line no-console
+      console.log('[dictation:ipc] stream-chunk', {
+        id: params.id,
+        bytes: params.chunk.byteLength,
+        at: Date.now(),
+      })
       pushStreamingDictationChunk(params.id, params.chunk)
       return { ok: true }
     },
@@ -127,6 +145,11 @@ export function registerIpc(): void {
     'dictation:stream-stop',
     async (_e, params: { id: string }) => {
       if (!params?.id) throw new Error('dictation:stream-stop requires id')
+      // eslint-disable-next-line no-console
+      console.log('[dictation:ipc] stream-stop:request', {
+        id: params.id,
+        at: Date.now(),
+      })
       return stopStreamingDictation(params.id)
     },
   )

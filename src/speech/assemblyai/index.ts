@@ -1,5 +1,5 @@
 import { assertApiKey, readErrorBody, SpeechProviderError } from '../errors.js'
-import { audioToBody, numberMs } from '../http.js'
+import { audioToBody, numberMs, numberSecondsToMs } from '../http.js'
 import type { SpeechProvider, SpeechTraceEvent, SpeechTranscript, TranscribeOptions } from '../types.js'
 
 type AssemblyAiTraceEvent = {
@@ -175,7 +175,7 @@ export async function transcribeAssemblyAi(
         phase: 'complete',
         ms: Date.now() - totalStartedAt,
         pollCount,
-        audioDurationMs: numberMs(result.audio_duration),
+        audioDurationMs: numberSecondsToMs(result.audio_duration),
         textChars: (result.text ?? '').length,
         speechModelUsed: (result as Record<string, unknown>).speech_model_used ?? null,
       })
@@ -209,7 +209,7 @@ function normalizeAssemblyAi(result: AssemblyAiTranscriptResponse): SpeechTransc
     provider: 'assemblyai',
     text: result.text ?? '',
     language: result.language_code,
-    durationMs: numberMs(result.audio_duration),
+    durationMs: numberSecondsToMs(result.audio_duration),
     utterances: result.utterances?.map(utterance => ({
       text: utterance.text,
       startMs: numberMs(utterance.start),

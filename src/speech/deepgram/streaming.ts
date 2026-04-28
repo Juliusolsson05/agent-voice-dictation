@@ -42,6 +42,8 @@ type DeepgramStreamingSession = {
   queuedChunks: Buffer[]
   chunkCount: number
   audioBytes: number
+  wsSentChunks: number
+  wsSentBytes: number
   finalTexts: string[]
   interimText: string
   resolve: (outcome: DeepgramStreamingTranscript) => void
@@ -91,6 +93,8 @@ export function createDeepgramStreamingProvider(
       queuedChunks: [],
       chunkCount: 0,
       audioBytes: 0,
+      wsSentChunks: 0,
+      wsSentBytes: 0,
       finalTexts: [],
       interimText: '',
       resolve: outcome => resolveDone(outcome),
@@ -118,6 +122,15 @@ export function createDeepgramStreamingProvider(
         queuedChunks: session.queuedChunks.length,
       })
       for (const chunk of session.queuedChunks.splice(0)) {
+        trace(session, 'deepgram:chunk:send', {
+          runId: id,
+          chunkIndex: session.wsSentChunks + 1,
+          bytes: chunk.byteLength,
+          queuedFlush: true,
+          elapsedMs: Date.now() - startedAt,
+        })
+        session.wsSentChunks += 1
+        session.wsSentBytes += chunk.byteLength
         ws.send(chunk)
       }
     })
@@ -176,9 +189,25 @@ export function createDeepgramStreamingProvider(
     session.audioBytes += buffer.byteLength
 
     if (session.opened && session.ws.readyState === WebSocket.OPEN) {
+      trace(session, 'deepgram:chunk:send', {
+        runId: id,
+        chunkIndex: session.wsSentChunks + 1,
+        bytes: buffer.byteLength,
+        queuedFlush: false,
+        elapsedMs: Date.now() - session.startedAt,
+      })
+      session.wsSentChunks += 1
+      session.wsSentBytes += buffer.byteLength
       session.ws.send(buffer)
     } else {
       session.queuedChunks.push(buffer)
+      trace(session, 'deepgram:chunk:queue', {
+        runId: id,
+        chunkIndex: session.chunkCount,
+        bytes: buffer.byteLength,
+        queuedChunks: session.queuedChunks.length,
+        elapsedMs: Date.now() - session.startedAt,
+      })
     }
   }
 
@@ -304,6 +333,8 @@ export function createDeepgramStreamingProvider(
       sttMs: sttDoneAt - session.startedAt,
       chunkCount: session.chunkCount,
       audioBytes: session.audioBytes,
+      wsSentChunks: session.wsSentChunks,
+      wsSentBytes: session.wsSentBytes,
       textChars: text.length,
       usedInterimFallback: !session.finalTexts.length && Boolean(session.interimText.trim()),
     })
