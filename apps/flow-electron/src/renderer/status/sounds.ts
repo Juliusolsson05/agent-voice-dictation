@@ -52,12 +52,16 @@ function getContext(): AudioContext {
 }
 
 export function playOpenSound(): void {
+  // Tuning history: started at 200ms / peakGain 0.18, the user reported
+  // both "a little louder" and "a little longer". Bumped ~60% on both.
+  // peakGain stays well under 1.0 so we never clip; the longer decay
+  // gives the chirp a fuller tail without changing its character.
   scheduleChirp({
-    durationMs: 200,
+    durationMs: 320,
     startFreq: 540,
     endFreq: 720,
-    peakGain: 0.18,
-    attackMs: 8,
+    peakGain: 0.30,
+    attackMs: 10,
   })
 }
 
@@ -66,11 +70,11 @@ export function playCloseSound(): void {
   // intentional: opening is "I am paying attention", closing is "okay,
   // got it" — the second cue earns less of the user's attention budget.
   scheduleChirp({
-    durationMs: 150,
+    durationMs: 240,
     startFreq: 720,
     endFreq: 540,
-    peakGain: 0.16,
-    attackMs: 6,
+    peakGain: 0.27,
+    attackMs: 8,
   })
 }
 
