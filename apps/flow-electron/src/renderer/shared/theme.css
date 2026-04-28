@@ -1,0 +1,136 @@
+/*
+ * Theme tokens. Deliberately our own — no Wispr `sand-*`, `vast-*`,
+ * `brand-*`, `fathom-*`, or `accent-*` names. We chose:
+ *
+ *   surface family: cool dark + clean light (no warm sand)
+ *   ink family:     near-black to mid-gray
+ *   accent:         a single cool blue (#6b8aff) that we control
+ *   danger:         a warm coral (#e26565) for record-stop and errors
+ *
+ * Both color modes share the same token names so components write
+ * one stylesheet. The `data-theme` attribute on <html> picks the
+ * mode. We default to dark because the recording pill is most legible
+ * over a dark background and most users will keep the Hub in dark mode.
+ */
+
+:root,
+:root[data-theme='dark'] {
+  --bg:           #0e0f12;
+  --surface:      #16181d;
+  --surface-2:   #1c1f26;
+  --ink:          #e7e9ef;
+  --ink-dim:      #9ba1ac;
+  --ink-mute:     #5a6068;
+  --border:       #232634;
+  --border-soft:  #1d2029;
+  --accent:       #6b8aff;
+  --accent-dim:   #5174e6;
+  --accent-fg:    #0e0f12;
+  --danger:       #e26565;
+  --danger-dim:   #b94d4d;
+  --success:      #6dd2a1;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  --shadow-card:   0 2px 8px rgba(0,0,0,0.18);
+  --shadow-modal:  0 10px 40px rgba(0,0,0,0.45);
+
+  --font-sans:  'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+  --font-mono:  'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+}
+
+:root[data-theme='light'] {
+  --bg:           #fafafa;
+  --surface:      #ffffff;
+  --surface-2:    #f3f4f7;
+  --ink:          #1a1c20;
+  --ink-dim:      #5a6068;
+  --ink-mute:     #9ba1ac;
+  --border:       #e3e5ea;
+  --border-soft:  #ecedf1;
+  --accent:       #4f6bdb;
+  --accent-dim:   #3a55c2;
+  --accent-fg:    #ffffff;
+  --danger:       #c2543f;
+  --danger-dim:   #9f4533;
+  --success:      #3aa57a;
+
+  --shadow-card:   0 1px 3px rgba(0,0,0,0.06);
+  --shadow-modal:  0 10px 40px rgba(0,0,0,0.18);
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;          /* app-chrome by default; inputs flip to text */
+}
+
+input, textarea, [contenteditable='true'] { user-select: text; }
+
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-soft); }
+
+/* The Status pill is a transparent window — its body must NOT paint
+   the global --bg. We override on a per-window basis via a body class. */
+body.status-window { background: transparent; }
+
+/* Reusable primitives */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.btn:hover { background: var(--surface-2); }
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+.btn-primary:hover { background: var(--accent-dim); border-color: var(--accent-dim); }
+.btn-danger {
+  background: transparent;
+  border-color: var(--danger-dim);
+  color: var(--danger);
+}
+.btn-danger:hover { background: var(--danger); color: white; }
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink-dim);
+}
+.btn-ghost:hover { background: var(--surface-2); color: var(--ink); }
+
+.input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.input:focus { outline: none; border-color: var(--accent); }
+.input::placeholder { color: var(--ink-mute); }

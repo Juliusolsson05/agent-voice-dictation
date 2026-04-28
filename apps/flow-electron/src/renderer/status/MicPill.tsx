@@ -1,0 +1,197 @@
+// MicPill renders the floating dictation indicator.
+//
+// Two visual variants:
+//   - hands-free: pill with [X] cancel + waveform + [■] stop
+//   - hold-to-talk: pill with waveform only, no buttons
+//
+// The pill is the only thing this window paints. The window background
+// is transparent (see status/index.html body class), so the pill's
+// rounded shape sits directly over whatever app is underneath.
+
+type State = 'idle' | 'recording' | 'transcribing' | 'error'
+
+type Props = {
+  state: State
+  level: number
+  error: string | null
+  handsFree: boolean
+  onStop: () => void
+  onCancel: () => void
+}
+
+export function MicPill({ state, level, error, handsFree, onStop, onCancel }: Props) {
+  return (
+    <div style={shellStyle}>
+      <div
+        style={{
+          ...pillStyle,
+          background: state === 'error' ? 'var(--danger)' : 'var(--surface)',
+          borderColor:
+            state === 'recording' ? 'var(--accent)' :
+            state === 'error' ? 'var(--danger)' :
+            'var(--border)',
+        }}
+        title={error ?? undefined}
+      >
+        {handsFree && state !== 'error' && (
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label="Cancel"
+            style={leftButtonStyle}
+          >
+            <CrossIcon />
+          </button>
+        )}
+
+        <div style={waveStyle}>
+          {state === 'transcribing' ? (
+            <DotsAnimating />
+          ) : state === 'error' ? (
+            <span style={{ color: 'white', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+              error
+            </span>
+          ) : (
+            <Bars level={level} active={state === 'recording'} />
+          )}
+        </div>
+
+        {handsFree && state !== 'error' && (
+          <button
+            type="button"
+            onClick={onStop}
+            aria-label="Stop"
+            style={stopButtonStyle}
+          >
+            <StopIcon />
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function Bars({ level, active }: { level: number; active: boolean }) {
+  // Five bars whose height responds to the live mic level. Each bar
+  // gets a phase offset so they shimmer instead of moving in lockstep —
+  // pure cosmetic, but it reads as "alive" the way a single bar does
+  // not. Heights are clamped to a minimum of 4 px so the pill doesn't
+  // look dead when the user pauses mid-sentence.
+  const phases = [0, 0.18, 0.36, 0.54, 0.72]
+  const t = (Date.now() % 1000) / 1000
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 3, height: 18 }}>
+      {phases.map((p, i) => {
+        const wave = active ? Math.abs(Math.sin((t + p) * Math.PI * 2)) : 0
+        const v = active ? Math.max(level * 0.6, 0.2) * (0.6 + 0.4 * wave) : 0.05
+        const h = Math.max(4, Math.round(v * 18))
+        return (
+          <span
+            key={i}
+            style={{
+              width: 3,
+              height: h,
+              background: active ? 'var(--accent)' : 'var(--ink-mute)',
+              borderRadius: 2,
+              transition: 'height 80ms ease-out',
+            }}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
+function DotsAnimating() {
+  return (
+    <div style={{ display: 'flex', gap: 4 }}>
+      {[0, 1, 2].map(i => (
+        <span
+          key={i}
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: '50%',
+            background: 'var(--ink-dim)',
+            animation: `flow-pulse 1.1s ${i * 0.18}s ease-in-out infinite`,
+          }}
+        />
+      ))}
+      <style>{`@keyframes flow-pulse { 0%,80%,100%{opacity:.2;transform:scale(.85)} 40%{opacity:1;transform:scale(1)} }`}</style>
+    </div>
+  )
+}
+
+function CrossIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M3 3 L9 9 M9 3 L3 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function StopIcon() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+      <rect x="1.5" y="1.5" width="7" height="7" rx="1.2" fill="currentColor" />
+    </svg>
+  )
+}
+
+const shellStyle: React.CSSProperties = {
+  width: '100%',
+  height: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  // The whole window is draggable so the user can reposition the pill.
+  // Buttons explicitly opt out via WebkitAppRegion: no-drag below.
+  WebkitAppRegion: 'drag',
+} as React.CSSProperties
+
+const pillStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  padding: '8px 12px',
+  borderRadius: 999,
+  border: '1px solid var(--border)',
+  background: 'var(--surface)',
+  boxShadow: 'var(--shadow-modal)',
+  minWidth: 130,
+  height: 36,
+}
+
+const waveStyle: React.CSSProperties = {
+  flex: 1,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  height: 18,
+}
+
+const leftButtonStyle: React.CSSProperties = {
+  width: 22,
+  height: 22,
+  borderRadius: '50%',
+  border: 'none',
+  background: 'var(--surface-2)',
+  color: 'var(--ink-dim)',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  WebkitAppRegion: 'no-drag',
+} as React.CSSProperties
+
+const stopButtonStyle: React.CSSProperties = {
+  width: 22,
+  height: 22,
+  borderRadius: '50%',
+  border: 'none',
+  background: 'var(--danger)',
+  color: 'white',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  WebkitAppRegion: 'no-drag',
+} as React.CSSProperties
