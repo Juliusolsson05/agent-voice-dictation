@@ -9,6 +9,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./composer": {
+      "types": "./dist/composer/index.d.ts",
+      "default": "./dist/composer/index.js"
+    },
+    "./env": {
+      "types": "./dist/env/index.d.ts",
+      "default": "./dist/env/index.js"
     }
   },
   "files": [

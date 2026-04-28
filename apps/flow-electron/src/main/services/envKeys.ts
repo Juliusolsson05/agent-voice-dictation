@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseDotEnv } from 'agent-voice-dictation'
+import { parseDotEnv } from 'agent-voice-dictation/env'
 
 import type { SttProviderId } from '@main/services/settingsStore.js'
 

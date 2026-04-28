@@ -1,5 +1,11 @@
 import { useCallback, useMemo, useState } from 'react'
-import { stripSttTag, wrapWithSttTag } from 'agent-voice-dictation'
+// Subpath import on purpose. The root `agent-voice-dictation` re-exports the
+// Deepgram streaming module, which imports `node:crypto` at the top of the
+// file. Vite happily resolves that for the main process (it's Node) but
+// chokes when it tries to bundle the renderer because `node:crypto` is not
+// available in the browser. The composer subpath only exposes the pure
+// wrap/strip helpers, so the renderer pulls just what it actually uses.
+import { stripSttTag, wrapWithSttTag } from 'agent-voice-dictation/composer'
 
 import type { AppSettings, DictationRecord } from '../../preload/index'
 import { formatBindingForDisplay } from '../../shared/hotkeyBinding'
