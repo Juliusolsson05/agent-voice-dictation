@@ -57,12 +57,35 @@ export async function createStatusWindow(): Promise<BrowserWindow> {
     maximizable: false,
     fullscreenable: false,
     skipTaskbar: true,
+    // type: 'panel' is the actual fix for "indicator does not show over
+    // fullscreen apps". Naively, setAlwaysOnTop('screen-saver') +
+    // setVisibleOnAllWorkspaces({ visibleOnFullScreen: true }) should be
+    // enough — the docs even claim it is — but in practice the window
+    // silently fails to appear over a native macOS fullscreen Space
+    // until the user manually focuses it once (electron/electron#36364).
+    // The other documented workaround is app.dock.hide(), which would
+    // hide the Hub from the Dock too — not acceptable for an app that
+    // wants its main window to behave like a normal app window.
+    //
+    // 'panel' adds NSWindowStyleMaskNonactivatingPanel at runtime, which
+    // is the same NSPanel collection behavior Wispr Flow and similar
+    // always-visible mic indicators rely on. The window then floats over
+    // any Space (regular or fullscreen) without needing focus to "wake
+    // up". Side effect we deliberately want: panel windows are
+    // non-activating, so clicks on the hands-free X/stop buttons land
+    // without pulling keyboard focus away from the user's target app.
+    // (Available in Electron 20+, see electron/electron#34388.) On
+    // non-darwin platforms 'panel' is not a valid value, so we omit it
+    // and fall back to focusable:false + alwaysOnTop alone.
+    ...(process.platform === 'darwin' ? { type: 'panel' as const } : {}),
     // alwaysOnTop with 'screen-saver' level keeps the pill above
     // fullscreen apps like Zoom too — dictation across all
-    // foreground contexts is the whole point.
+    // foreground contexts is the whole point. Kept alongside the panel
+    // type because Linux/Windows still need it.
     alwaysOnTop: true,
-    // focusable: false is the magic that lets the user keep typing
-    // (or hold a hotkey) in another app while the pill is visible.
+    // Redundant on macOS once `type: 'panel'` is set (panel windows are
+    // non-activating by definition), but kept so non-darwin builds still
+    // get the "don't steal focus while dictating" guarantee.
     focusable: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
