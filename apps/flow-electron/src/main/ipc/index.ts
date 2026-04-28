@@ -18,6 +18,7 @@ import {
   clearRecents,
 } from '@main/services/recentsStore.js'
 import { runDictation } from '@main/services/dictationController.js'
+import { registerConfiguredHotkey } from '@main/services/hotkey.js'
 import { getStatusWindow, showStatus, hideStatus } from '@main/windows/status.js'
 
 // One central place to wire IPC. We deliberately keep handlers
@@ -33,8 +34,22 @@ import { getStatusWindow, showStatus, hideStatus } from '@main/windows/status.js
 export function registerIpc(): void {
   // ---- Settings ----
   ipcMain.handle('settings:get', () => loadSettings())
-  ipcMain.handle('settings:set', (_e, patch: Partial<AppSettings>) => saveSettings(patch))
-  ipcMain.handle('settings:reset', () => resetSettings())
+  ipcMain.handle('settings:set', async (_e, patch: Partial<AppSettings>) => {
+    let next = await saveSettings(patch)
+    if (typeof patch.hotkey === 'string') {
+      await registerConfiguredHotkey()
+      // registerConfiguredHotkey may repair a malformed accelerator
+      // back to the default. Return the repaired settings immediately
+      // so the Hub does not display a value that main just rejected.
+      next = await loadSettings()
+    }
+    return next
+  })
+  ipcMain.handle('settings:reset', async () => {
+    const next = await resetSettings()
+    await registerConfiguredHotkey()
+    return next
+  })
 
   // ---- Secrets ----
   // setSecret accepts the plain string from the Settings UI ONCE,

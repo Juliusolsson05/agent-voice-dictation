@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 
 import type { AppSettings, DictationRecord } from '../../preload/index'
+import { formatBindingForDisplay } from '../../shared/hotkeyBinding'
 
 type Props = {
   settings: AppSettings | null
@@ -147,14 +148,7 @@ function RecentRow({
 }
 
 function fmtAccelerator(value: string): string {
-  // Show ⌥⌘ etc instead of "Alt+Cmd" in the hero. Pure cosmetic.
-  return value
-    .replace(/CommandOrControl/g, '⌘')
-    .replace(/Cmd/g, '⌘')
-    .replace(/Ctrl/g, '⌃')
-    .replace(/Alt/g, '⌥')
-    .replace(/Shift/g, '⇧')
-    .replace(/\+/g, '')
+  return formatBindingForDisplay(value)
 }
 
 function fmtTime(ts: number): string {

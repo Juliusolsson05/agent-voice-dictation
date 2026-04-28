@@ -1,9 +1,13 @@
-import { app, globalShortcut, BrowserWindow } from 'electron'
+import { app, BrowserWindow } from 'electron'
 
 import { createHubWindow, getHubWindow } from '@main/windows/hub.js'
 import { createStatusWindow, showStatus, hideStatus } from '@main/windows/status.js'
 import { registerIpc, broadcastDictationEvent } from '@main/ipc/index.js'
-import { loadSettings } from '@main/services/settingsStore.js'
+import {
+  configureHotkeyHandler,
+  registerConfiguredHotkey,
+  unregisterHotkeys,
+} from '@main/services/hotkey.js'
 
 // Main entry. Responsibilities:
 //   1. Single-instance lock so we don't spawn duplicate hubs.
@@ -32,6 +36,11 @@ if (!lock) {
 }
 
 async function start(): Promise<void> {
+  configureHotkeyHandler(() => {
+    showStatus()
+    broadcastDictationEvent('hotkey:fired')
+  })
+
   registerIpc()
 
   await createStatusWindow()
@@ -42,7 +51,7 @@ async function start(): Promise<void> {
 
   createHubWindow()
 
-  await wireGlobalHotkey()
+  await registerConfiguredHotkey()
 
   app.on('activate', () => {
     // macOS: clicking the dock icon with no windows open should open
@@ -51,35 +60,10 @@ async function start(): Promise<void> {
   })
 }
 
-async function wireGlobalHotkey(): Promise<void> {
-  const settings = await loadSettings()
-  // We register a press/release-like flow using two events:
-  //   - the accelerator pressed: signal "begin recording"
-  //   - the accelerator released: signal "end recording"
-  //
-  // Electron's globalShortcut API only fires once per press, so we
-  // rely on the renderer to interpret a single fire as a toggle in
-  // hands-free mode and as press-to-talk start in hold mode. For
-  // hold-to-talk on macOS we will need to upgrade to a per-keystroke
-  // listener via a native module — not in v1.
-  //
-  // For now: every hotkey press toggles the Status pill and
-  // broadcasts a `hotkey:fired` event for the Status renderer to
-  // start/stop recording.
-  const ok = globalShortcut.register(settings.hotkey, () => {
-    showStatus()
-    broadcastDictationEvent('hotkey:fired')
-  })
-  if (!ok) {
-    // eslint-disable-next-line no-console
-    console.warn(`[hotkey] failed to register accelerator "${settings.hotkey}"`)
-  }
-}
-
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
 app.on('will-quit', () => {
-  globalShortcut.unregisterAll()
+  unregisterHotkeys()
 })

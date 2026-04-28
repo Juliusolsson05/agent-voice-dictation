@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import type { AppSettings, SttProviderId } from '../../preload/index'
+import { HotkeyInput } from './HotkeyInput'
 
 type Props = {
   settings: AppSettings
@@ -81,7 +82,23 @@ function TabButton({
   return (
     <button
       type="button"
-      onClick={onClick}
+      onPointerDown={e => {
+        // These buttons live inside a modal whose backdrop closes on
+        // outside interaction, and the Electron window uses draggable
+        // hidden-titlebar regions elsewhere. Running the tab switch on
+        // pointerdown and stopping propagation makes the settings nav
+        // independent of click synthesis, backdrop handling, and any
+        // future drag-region tweaks. If this is only `onClick`, a
+        // swallowed mouseup/click makes the tab feel dead even though
+        // the button visually exists.
+        e.preventDefault()
+        e.stopPropagation()
+        onClick()
+      }}
+      onClick={e => {
+        e.preventDefault()
+        e.stopPropagation()
+      }}
       style={{
         display: 'block',
         width: '100%',
@@ -92,6 +109,7 @@ function TabButton({
         background: active ? 'var(--surface-2)' : 'transparent',
         color: active ? 'var(--ink)' : 'var(--ink-dim)',
         fontSize: 13,
+        WebkitAppRegion: 'no-drag',
       }}
     >
       {children}
@@ -110,12 +128,11 @@ function DictationTab({
 }) {
   return (
     <Section title="General">
-      <Row label="Hotkey" hint="Global accelerator that starts dictation.">
-        <input
-          className="input"
+      <Row label="Hotkey" hint="Click and press your combo. Esc cancels.">
+        <HotkeyInput
           value={settings.hotkey}
-          onChange={e => void update({ hotkey: e.target.value })}
-          placeholder="Alt+Space"
+          onChange={next => void update({ hotkey: next })}
+          placeholder="Click to set hotkey"
         />
       </Row>
       <Row label="Language" hint="BCP-47 like en, sv, de. Empty = auto-detect.">

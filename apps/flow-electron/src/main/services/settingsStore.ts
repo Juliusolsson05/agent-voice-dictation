@@ -26,7 +26,7 @@ export type AppSettings = {
   v: 1
 
   // Dictation tab
-  hotkey: string                 // Electron globalShortcut accelerator string
+  hotkey: string                 // Mac helper binding string; Electron accelerator only off macOS
   microphoneDeviceId: string | null
   language: string | null        // BCP-47 like 'en' or null = auto
   autoPasteAtCursor: boolean
@@ -46,11 +46,12 @@ export type AppSettings = {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   v: 1,
-  // ⌥Space chosen because `fn` requires a per-keystroke accessibility
-  // tap on macOS that we can defer to phase 2. ⌥Space is unbound by
-  // default in macOS (Spotlight is ⌘Space) and works as a normal
-  // global shortcut today.
-  hotkey: 'Alt+Space',
+  // Stored in the same binding vocabulary that the checked-in macOS
+  // helper consumes. This is not an Electron accelerator on macOS:
+  // Electron cannot represent Fn or modifier-only bindings, so using
+  // Electron naming here would put the wrong abstraction in the
+  // settings file and make future migrations painful.
+  hotkey: 'Option+SPACE',
   microphoneDeviceId: null,
   language: null,
   autoPasteAtCursor: true,
