@@ -80,6 +80,7 @@ function coerceSettings(value: unknown): AppSettings {
     ...DEFAULT_SETTINGS,
     ...partial,
     v: 1,
+    hotkey: migrateLegacyHotkey(partial.hotkey ?? DEFAULT_SETTINGS.hotkey),
     // Provider selection is gated by the package-level support registry, not
     // by whether a client file happens to exist. We have unverified clients in
     // the repo for future work, but old settings files must not keep selecting
@@ -108,6 +109,19 @@ function isSupportedSttProvider(value: unknown): value is SttProviderId {
   return typeof value === 'string'
     && ['assemblyai', 'deepgram', 'openai', 'gladia', 'elevenlabs'].includes(value)
     && isSpeechProviderSelectable(value as SttProviderId)
+}
+
+// One-shot migration for the bracket-key rename. Earlier builds stored
+// "SQUARE BRACKET OPEN" / "SQUARE BRACKET CLOSE" in the hotkey string,
+// and the names were swapped relative to the actual key the user chose:
+// the macOS keycode 0x1E (`]`, kVK_ANSI_RightBracket) was labeled OPEN,
+// and 0x21 (`[`, kVK_ANSI_LeftBracket) was labeled CLOSE. Rewrite so the
+// stored value matches the new physical-position vocabulary; the helper
+// no longer accepts the old names.
+function migrateLegacyHotkey(value: string): string {
+  return value
+    .replace(/\bSQUARE BRACKET OPEN\b/g, 'BRACKET_RIGHT')
+    .replace(/\bSQUARE BRACKET CLOSE\b/g, 'BRACKET_LEFT')
 }
 
 let cached: AppSettings | null = null

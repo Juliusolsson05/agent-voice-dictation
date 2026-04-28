@@ -54,8 +54,14 @@ const NAMED_KEYS: Record<string, string> = {
   PageDown: 'PAGE DOWN',
   Equal: 'EQUALS',
   Minus: 'MINUS',
-  BracketLeft: 'SQUARE BRACKET CLOSE',
-  BracketRight: 'SQUARE BRACKET OPEN',
+  // Names follow the physical-position convention used by macOS keycodes:
+  // BRACKET_LEFT is the `[` key (kVK_ANSI_LeftBracket = 0x21), BRACKET_RIGHT
+  // is `]` (kVK_ANSI_RightBracket = 0x1E). The earlier OPEN/CLOSE labels
+  // were swapped in both this file and main.swift; the round-trip happened
+  // to work because both halves were wrong in the same direction, but
+  // anyone reading either file alone would have been misled.
+  BracketLeft: 'BRACKET_LEFT',
+  BracketRight: 'BRACKET_RIGHT',
   Semicolon: 'SEMICOLON',
   Quote: 'QUOTE',
   Backslash: 'BACKSLASH',

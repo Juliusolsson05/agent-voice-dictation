@@ -37,8 +37,13 @@ let keyCodes: [String: CGKeyCode] = [
   "Q": 0x0C, "W": 0x0D, "E": 0x0E, "R": 0x0F, "Y": 0x10, "T": 0x11,
   "1": 0x12, "2": 0x13, "3": 0x14, "4": 0x15, "6": 0x16,
   "5": 0x17, "EQUALS": 0x18, "9": 0x19, "7": 0x1A, "MINUS": 0x1B,
-  "8": 0x1C, "0": 0x1D, "SQUARE BRACKET OPEN": 0x1E, "O": 0x1F,
-  "U": 0x20, "SQUARE BRACKET CLOSE": 0x21, "I": 0x22, "P": 0x23,
+  // BRACKET_LEFT (`[`) is kVK_ANSI_LeftBracket = 0x21 and BRACKET_RIGHT
+  // (`]`) is kVK_ANSI_RightBracket = 0x1E. Earlier versions of this table
+  // labeled them as OPEN/CLOSE and swapped them; the renderer happened to
+  // emit the swapped names, so the round-trip worked anyway. Names now
+  // follow physical key position to match the renderer vocabulary.
+  "8": 0x1C, "0": 0x1D, "BRACKET_RIGHT": 0x1E, "O": 0x1F,
+  "U": 0x20, "BRACKET_LEFT": 0x21, "I": 0x22, "P": 0x23,
   "RETURN": 0x24, "L": 0x25, "J": 0x26, "QUOTE": 0x27, "K": 0x28,
   "SEMICOLON": 0x29, "BACKSLASH": 0x2A, "COMMA": 0x2B,
   "FORWARD SLASH": 0x2C, "N": 0x2D, "M": 0x2E, "DOT": 0x2F,
