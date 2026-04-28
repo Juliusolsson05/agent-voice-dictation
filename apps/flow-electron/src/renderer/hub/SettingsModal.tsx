@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { AppSettings, SpeechProviderSupportMap, SttProviderId } from '../../preload/index'
 import { HotkeyInput } from './HotkeyInput'
@@ -26,6 +26,7 @@ const PROVIDERS: { id: SttProviderId; label: string; secretId: string }[] = [
 
 export function SettingsModal({ settings, onClose, onChanged }: Props) {
   const [tab, setTab] = useState<Tab>('dictation')
+  const overlayMouseDownRef = useRef(false)
 
   // Esc closes — match the rest of the app's modal convention.
   useEffect(() => {
@@ -44,8 +45,22 @@ export function SettingsModal({ settings, onClose, onChanged }: Props) {
     [onChanged],
   )
 
+  // Require BOTH mousedown and mouseup on the overlay before closing.
+  // The previous version closed on any overlay mousedown, which fired
+  // when the user started selecting text inside an input and dragged
+  // the pointer past the panel edge — they meant "select text", we
+  // heard "close the modal". Tracking the down-target lets the click
+  // happen on the overlay and only then count as a dismissal.
+  const onOverlayMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    overlayMouseDownRef.current = e.target === e.currentTarget
+  }, [])
+  const onOverlayMouseUp = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (overlayMouseDownRef.current && e.target === e.currentTarget) onClose()
+    overlayMouseDownRef.current = false
+  }, [onClose])
+
   return (
-    <div style={overlayStyle} onMouseDown={onClose}>
+    <div style={overlayStyle} onMouseDown={onOverlayMouseDown} onMouseUp={onOverlayMouseUp}>
       <div style={panelStyle} onMouseDown={e => e.stopPropagation()}>
         <header style={headerStyle}>
           <div style={headerTitleStyle}>Settings</div>
