@@ -20,7 +20,10 @@ export function Sidebar({ view, onSelect, onOpenSettings, version }: Props) {
 
   return (
     <aside style={asideStyle}>
-      <div style={brandStyle}>Flow</div>
+      <div style={brandStyle}>
+        <span style={brandMarkStyle} />
+        <span>Flow</span>
+      </div>
 
       <nav aria-label="Primary" style={navStyle}>
         <ul style={listStyle}>
@@ -70,20 +73,34 @@ function Dot({ active }: { active: boolean }) {
 }
 
 const asideStyle: React.CSSProperties = {
+  position: 'relative',
+  zIndex: 2,
   display: 'flex',
   flexDirection: 'column',
-  background: 'var(--surface)',
+  background: 'linear-gradient(180deg, rgba(17,21,27,0.96), rgba(12,15,20,0.96))',
   borderRight: '1px solid var(--border-soft)',
-  padding: '14px 12px 12px',
+  padding: '14px 10px 12px',
+  boxShadow: 'inset -1px 0 rgba(255,255,255,0.025)',
   WebkitAppRegion: 'drag', // hiddenInset traffic lights live here
 } as React.CSSProperties
 
 const brandStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 9,
   fontFamily: 'var(--font-mono)',
-  fontSize: 13,
+  fontSize: 12,
   letterSpacing: 0.4,
-  padding: '40px 8px 16px',
+  padding: '40px 10px 18px',
   color: 'var(--ink)',
+}
+
+const brandMarkStyle: React.CSSProperties = {
+  width: 8,
+  height: 8,
+  borderRadius: '50%',
+  background: 'var(--accent)',
+  boxShadow: '0 0 18px rgba(141,162,255,0.45)',
 }
 
 const navStyle: React.CSSProperties = {
@@ -102,12 +119,13 @@ function itemStyle(active: boolean): React.CSSProperties {
     alignItems: 'center',
     width: '100%',
     padding: '8px 10px',
-    borderRadius: 'var(--radius-md)',
-    border: 'none',
-    background: active ? 'var(--surface-2)' : 'transparent',
+    borderRadius: 8,
+    border: '1px solid ' + (active ? 'var(--border-soft)' : 'transparent'),
+    background: active ? 'rgba(255,255,255,0.045)' : 'transparent',
     color: active ? 'var(--ink)' : 'var(--ink-dim)',
     textAlign: 'left',
     fontSize: 13,
+    transition: 'background var(--motion-fast) ease, border-color var(--motion-fast) ease, color var(--motion-fast) ease',
     WebkitAppRegion: 'no-drag',
   } as React.CSSProperties
 }

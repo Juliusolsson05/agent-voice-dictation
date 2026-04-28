@@ -42,6 +42,7 @@ export function App() {
 
   return (
     <div style={layoutStyle}>
+      <div style={lineFieldStyle} aria-hidden="true" />
       <Sidebar
         view={view}
         onSelect={setView}
@@ -71,13 +72,35 @@ export function App() {
 
 const layoutStyle: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '220px 1fr',
+  gridTemplateColumns: '208px 1fr',
   height: '100%',
+  position: 'relative',
+  overflow: 'hidden',
+  background:
+    'radial-gradient(circle at 82% 8%, rgba(141,162,255,0.10), transparent 32%), ' +
+    'linear-gradient(135deg, var(--bg), var(--bg-soft) 56%, #07090d)',
 }
 
 const contentStyle: React.CSSProperties = {
+  position: 'relative',
+  zIndex: 1,
   overflow: 'auto',
-  padding: '60px 48px 48px',
+  padding: '58px 56px 52px',
+  animation: 'app-enter var(--motion-med) var(--ease-out)',
   // Top inset accounts for hiddenInset traffic lights so content
   // doesn't sit underneath them.
+}
+
+const lineFieldStyle: React.CSSProperties = {
+  position: 'absolute',
+  inset: 0,
+  pointerEvents: 'none',
+  opacity: 0.55,
+  backgroundImage:
+    'linear-gradient(120deg, transparent 0 68%, rgba(255,255,255,0.045) 68.15%, transparent 68.5%), ' +
+    'linear-gradient(120deg, transparent 0 74%, rgba(141,162,255,0.035) 74.15%, transparent 74.45%), ' +
+    'linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px)',
+  backgroundSize: '340px 340px, 520px 520px, 56px 56px',
+  maskImage: 'radial-gradient(circle at 84% 8%, black, transparent 47%)',
+  WebkitMaskImage: 'radial-gradient(circle at 84% 8%, black, transparent 47%)',
 }

@@ -45,18 +45,22 @@ function Hero({
 }) {
   return (
     <section style={heroStyle}>
-      <div style={heroEyebrowStyle}>Hold {fmtAccelerator(hotkey)} and speak</div>
-      <h1 style={heroHeadlineStyle}>Press, talk, release.</h1>
+      <div style={heroTopStyle}>
+        <div>
+          <div style={heroEyebrowStyle}>Dictation ready</div>
+          <h1 style={heroHeadlineStyle}>Hold {fmtAccelerator(hotkey)}</h1>
+        </div>
+        <button type="button" className="btn btn-ghost" onClick={onOpenSettings}>
+          Settings
+        </button>
+      </div>
       <p style={heroSubtextStyle}>
-        Your dictation lands at the cursor in the focused app. Start in any
-        text field — the indicator shows up automatically.
+        Speak into any focused text field. The text is streamed, cleaned only when enabled,
+        and pasted back at the cursor.
       </p>
       <div style={heroChipsStyle}>
         <Chip label="Speech" value={provider} />
         <Chip label="Polish" value={polish} />
-        <button type="button" className="btn btn-ghost" onClick={onOpenSettings}>
-          Settings
-        </button>
       </div>
     </section>
   )
@@ -91,8 +95,8 @@ function RecentList({
     <section style={listSectionStyle}>
       <h2 style={sectionHeadingStyle}>Recents</h2>
       <ul style={listStyle}>
-        {recents.map(record => (
-          <RecentRow key={record.id} record={record} onChanged={onChanged} />
+        {recents.map((record, index) => (
+          <RecentRow key={record.id} record={record} index={index} onChanged={onChanged} />
         ))}
       </ul>
     </section>
@@ -101,9 +105,11 @@ function RecentList({
 
 function RecentRow({
   record,
+  index,
   onChanged,
 }: {
   record: DictationRecord
+  index: number
   onChanged: () => Promise<void> | void
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -123,7 +129,7 @@ function RecentRow({
   }, [record.id, onChanged])
 
   return (
-    <li style={rowStyle}>
+    <li style={{ ...rowStyle, animationDelay: `${Math.min(index * 18, 140)}ms` }}>
       <button
         type="button"
         onClick={() => setExpanded(v => !v)}
@@ -131,7 +137,8 @@ function RecentRow({
         aria-expanded={expanded}
       >
         <span style={rowTimeStyle}>{fmtTime(record.ts)}</span>
-        <span style={rowProviderStyle}>{record.provider}{record.model ? ' · ' + record.model : ''}</span>
+        <span style={rowProviderStyle}>{record.provider}</span>
+        <span style={rowDurationStyle}>{Math.round(record.durationMs)}ms</span>
         <span style={rowPreviewStyle}>{preview}</span>
       </button>
       {expanded && (
@@ -167,16 +174,26 @@ function fmtTime(ts: number): string {
 const pageStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 28,
-  maxWidth: 720,
+  gap: 26,
+  maxWidth: 860,
 }
 
 const heroStyle: React.CSSProperties = {
-  background: 'var(--surface)',
+  position: 'relative',
+  background:
+    'linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.018)), var(--surface)',
   border: '1px solid var(--border-soft)',
-  borderRadius: 'var(--radius-lg)',
-  padding: '28px 28px 22px',
+  borderRadius: 12,
+  padding: '22px 24px 20px',
   boxShadow: 'var(--shadow-card)',
+  overflow: 'hidden',
+}
+
+const heroTopStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  justifyContent: 'space-between',
+  gap: 18,
 }
 
 const heroEyebrowStyle: React.CSSProperties = {
@@ -185,21 +202,22 @@ const heroEyebrowStyle: React.CSSProperties = {
   color: 'var(--ink-mute)',
   textTransform: 'uppercase',
   letterSpacing: 0.6,
-  marginBottom: 8,
+  marginBottom: 7,
 }
 
 const heroHeadlineStyle: React.CSSProperties = {
-  margin: '0 0 6px',
-  fontSize: 24,
+  margin: 0,
+  fontSize: 22,
   fontWeight: 600,
   color: 'var(--ink)',
+  letterSpacing: 0,
 }
 
 const heroSubtextStyle: React.CSSProperties = {
-  margin: '0 0 18px',
+  margin: '12px 0 18px',
   color: 'var(--ink-dim)',
   fontSize: 13,
-  maxWidth: 540,
+  maxWidth: 620,
 }
 
 const heroChipsStyle: React.CSSProperties = {
@@ -214,9 +232,9 @@ const chipStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 8,
   padding: '6px 10px',
-  background: 'var(--surface-2)',
+  background: 'rgba(255,255,255,0.035)',
   border: '1px solid var(--border-soft)',
-  borderRadius: 'var(--radius-pill)',
+  borderRadius: 8,
   fontSize: 11,
 }
 
@@ -228,7 +246,7 @@ const listSectionStyle: React.CSSProperties = {
 
 const sectionHeadingStyle: React.CSSProperties = {
   margin: 0,
-  fontSize: 13,
+  fontSize: 11,
   fontWeight: 500,
   color: 'var(--ink-dim)',
   textTransform: 'uppercase',
@@ -239,7 +257,7 @@ const sectionHeadingStyle: React.CSSProperties = {
 const emptyStyle: React.CSSProperties = {
   margin: 0,
   color: 'var(--ink-mute)',
-  padding: '12px 0',
+  padding: '16px 0',
 }
 
 const listStyle: React.CSSProperties = {
@@ -248,23 +266,27 @@ const listStyle: React.CSSProperties = {
   padding: 0,
   display: 'flex',
   flexDirection: 'column',
-  gap: 1,
-  background: 'var(--border-soft)',
-  borderRadius: 'var(--radius-md)',
+  gap: 0,
+  background: 'rgba(255,255,255,0.025)',
+  border: '1px solid var(--border-soft)',
+  borderRadius: 12,
   overflow: 'hidden',
+  boxShadow: 'var(--shadow-card)',
 }
 
 const rowStyle: React.CSSProperties = {
-  background: 'var(--surface)',
+  background: 'rgba(17,21,27,0.86)',
+  borderBottom: '1px solid var(--border-soft)',
+  animation: 'app-enter 180ms var(--ease-out) both',
 }
 
 const rowToggleStyle: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '64px 180px 1fr',
+  gridTemplateColumns: '70px 96px 72px 1fr',
   alignItems: 'center',
   gap: 12,
   width: '100%',
-  padding: '10px 14px',
+  padding: '11px 14px',
   background: 'transparent',
   border: 'none',
   textAlign: 'left',
@@ -286,6 +308,12 @@ const rowProviderStyle: React.CSSProperties = {
   textOverflow: 'ellipsis',
 }
 
+const rowDurationStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 11,
+  color: 'var(--ink-mute)',
+}
+
 const rowPreviewStyle: React.CSSProperties = {
   fontSize: 12.5,
   color: 'var(--ink)',
@@ -295,12 +323,13 @@ const rowPreviewStyle: React.CSSProperties = {
 }
 
 const rowExpandedStyle: React.CSSProperties = {
-  padding: '0 14px 14px 90px',
+  padding: '0 18px 16px 192px',
   display: 'flex',
   flexDirection: 'column',
   gap: 12,
   color: 'var(--ink)',
   fontSize: 13,
+  lineHeight: 1.55,
 }
 
 const rowActionsStyle: React.CSSProperties = {

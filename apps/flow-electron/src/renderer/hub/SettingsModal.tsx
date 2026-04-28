@@ -102,13 +102,14 @@ function TabButton({
       style={{
         display: 'block',
         width: '100%',
-        padding: '8px 12px',
+        padding: '8px 11px',
         textAlign: 'left',
-        border: 'none',
-        borderRadius: 'var(--radius-md)',
-        background: active ? 'var(--surface-2)' : 'transparent',
+        border: '1px solid ' + (active ? 'var(--border-soft)' : 'transparent'),
+        borderRadius: 8,
+        background: active ? 'rgba(255,255,255,0.045)' : 'transparent',
         color: active ? 'var(--ink)' : 'var(--ink-dim)',
-        fontSize: 13,
+        fontSize: 12,
+        transition: 'background var(--motion-fast) ease, border-color var(--motion-fast) ease, color var(--motion-fast) ease',
         WebkitAppRegion: 'no-drag',
       }}
     >
@@ -327,7 +328,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         color: 'var(--ink-mute)',
         fontFamily: 'var(--font-mono)',
       }}>{title}</h3>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 0,
+        border: '1px solid var(--border-soft)',
+        borderRadius: 12,
+        overflow: 'hidden',
+        background: 'rgba(255,255,255,0.02)',
+      }}>
         {children}
       </div>
     </section>
@@ -344,9 +353,17 @@ function Row({
   children: React.ReactNode
 }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 16, alignItems: 'start' }}>
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: '180px 1fr',
+      gap: 16,
+      alignItems: 'start',
+      padding: '13px 14px',
+      borderBottom: '1px solid var(--border-soft)',
+      background: 'rgba(17,21,27,0.58)',
+    }}>
       <div>
-        <div style={{ color: 'var(--ink)', fontSize: 13 }}>{label}</div>
+        <div style={{ color: 'var(--ink)', fontSize: 12.5 }}>{label}</div>
         {hint && <div style={{ color: 'var(--ink-mute)', fontSize: 11, marginTop: 2 }}>{hint}</div>}
       </div>
       <div>{children}</div>
@@ -403,19 +420,20 @@ function pillStyle(active: boolean): React.CSSProperties {
   return {
     padding: '6px 12px',
     fontSize: 12,
-    borderRadius: 'var(--radius-pill)',
+    borderRadius: 8,
     border: '1px solid ' + (active ? 'var(--accent)' : 'var(--border)'),
-    background: active ? 'var(--accent)' : 'transparent',
+    background: active ? 'var(--accent)' : 'rgba(255,255,255,0.025)',
     color: active ? 'var(--accent-fg)' : 'var(--ink-dim)',
+    transition: 'background var(--motion-fast) ease, border-color var(--motion-fast) ease, color var(--motion-fast) ease',
   }
 }
 
 const overlayStyle: React.CSSProperties = {
   position: 'fixed',
   inset: 0,
-  background: 'rgba(8, 9, 12, 0.55)',
-  backdropFilter: 'blur(6px)',
-  WebkitBackdropFilter: 'blur(6px)',
+  background: 'rgba(5, 7, 10, 0.58)',
+  backdropFilter: 'blur(10px)',
+  WebkitBackdropFilter: 'blur(10px)',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -425,13 +443,14 @@ const overlayStyle: React.CSSProperties = {
 const panelStyle: React.CSSProperties = {
   width: 760,
   maxHeight: '82vh',
-  background: 'var(--surface)',
+  background: 'linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.012)), var(--surface)',
   border: '1px solid var(--border-soft)',
-  borderRadius: 'var(--radius-lg)',
+  borderRadius: 14,
   boxShadow: 'var(--shadow-modal)',
   display: 'flex',
   flexDirection: 'column',
   overflow: 'hidden',
+  animation: 'modal-enter var(--motion-med) var(--ease-out)',
 }
 
 const headerStyle: React.CSSProperties = {
@@ -440,11 +459,12 @@ const headerStyle: React.CSSProperties = {
   justifyContent: 'space-between',
   padding: '14px 16px',
   borderBottom: '1px solid var(--border-soft)',
+  background: 'rgba(255,255,255,0.018)',
 }
 
 const headerTitleStyle: React.CSSProperties = {
   fontWeight: 600,
-  fontSize: 14,
+  fontSize: 13,
   color: 'var(--ink)',
 }
 
@@ -461,11 +481,12 @@ const tabsStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 4,
-  background: 'var(--surface)',
+  background: 'rgba(9,11,15,0.26)',
 }
 
 const paneStyle: React.CSSProperties = {
   padding: '20px 24px',
   overflow: 'auto',
-  background: 'var(--surface-2)',
+  background:
+    'linear-gradient(135deg, rgba(141,162,255,0.035), transparent 34%), var(--surface-2)',
 }

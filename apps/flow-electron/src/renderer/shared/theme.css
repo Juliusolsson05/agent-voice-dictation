@@ -15,28 +15,34 @@
 
 :root,
 :root[data-theme='dark'] {
-  --bg:           #0e0f12;
-  --surface:      #16181d;
-  --surface-2:   #1c1f26;
-  --ink:          #e7e9ef;
-  --ink-dim:      #9ba1ac;
-  --ink-mute:     #5a6068;
-  --border:       #232634;
-  --border-soft:  #1d2029;
-  --accent:       #6b8aff;
-  --accent-dim:   #5174e6;
-  --accent-fg:    #0e0f12;
-  --danger:       #e26565;
-  --danger-dim:   #b94d4d;
-  --success:      #6dd2a1;
+  --bg:           #090b0f;
+  --bg-soft:      #0d1015;
+  --surface:      #11151b;
+  --surface-2:    #151a22;
+  --surface-3:    #1a202a;
+  --ink:          #eef1f7;
+  --ink-dim:      #a1a8b5;
+  --ink-mute:     #66707d;
+  --border:       rgba(255,255,255,0.10);
+  --border-soft:  rgba(255,255,255,0.065);
+  --accent:       #8da2ff;
+  --accent-dim:   #6f84e8;
+  --accent-fg:    #090b0f;
+  --danger:       #ee756d;
+  --danger-dim:   #ba5953;
+  --success:      #72d5a8;
 
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
   --radius-pill: 999px;
 
-  --shadow-card:   0 2px 8px rgba(0,0,0,0.18);
-  --shadow-modal:  0 10px 40px rgba(0,0,0,0.45);
+  --shadow-card:   0 1px 0 rgba(255,255,255,0.03), 0 18px 52px rgba(0,0,0,0.22);
+  --shadow-modal:  0 24px 80px rgba(0,0,0,0.48);
+
+  --motion-fast: 120ms;
+  --motion-med: 180ms;
+  --ease-out: cubic-bezier(.2,.8,.2,1);
 
   --font-sans:  'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
   --font-mono:  'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
@@ -76,6 +82,16 @@ body {
   user-select: none;          /* app-chrome by default; inputs flip to text */
 }
 
+@keyframes app-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes modal-enter {
+  from { opacity: 0; transform: translateY(8px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 input, textarea, [contenteditable='true'] { user-select: text; }
 
 button { font: inherit; color: inherit; cursor: pointer; }
@@ -100,8 +116,9 @@ body.status-window { background: transparent; }
   background: var(--surface);
   color: var(--ink);
   font-size: 12px;
-  transition: background 120ms ease, border-color 120ms ease;
+  transition: background var(--motion-fast) ease, border-color var(--motion-fast) ease, color var(--motion-fast) ease, transform var(--motion-fast) var(--ease-out);
 }
+.btn:active { transform: translateY(1px); }
 .btn:hover { background: var(--surface-2); }
 .btn-primary {
   background: var(--accent);
@@ -132,5 +149,5 @@ body.status-window { background: transparent; }
   font-family: var(--font-mono);
   font-size: 12px;
 }
-.input:focus { outline: none; border-color: var(--accent); }
+.input:focus { outline: none; border-color: rgba(141,162,255,0.7); box-shadow: 0 0 0 3px rgba(141,162,255,0.10); }
 .input::placeholder { color: var(--ink-mute); }
