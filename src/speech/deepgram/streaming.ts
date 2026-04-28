@@ -420,8 +420,9 @@ export function createDeepgramStreamingProvider(
     if (!sessions.has(session.id)) return
     sessions.delete(session.id)
 
-    const text = session.finalTexts.join(' ').replace(/\s+/g, ' ').trim()
-      || session.interimText.trim()
+    const finalText = session.finalTexts.join(' ').replace(/\s+/g, ' ').trim()
+    const interimText = session.interimText.trim()
+    const { text, source } = chooseDeepgramStreamingTranscriptText(finalText, interimText)
     const sttDoneAt = Date.now()
 
     trace(session, 'deepgram:complete', {
@@ -432,7 +433,10 @@ export function createDeepgramStreamingProvider(
       wsSentChunks: session.wsSentChunks,
       wsSentBytes: session.wsSentBytes,
       textChars: text.length,
-      usedInterimFallback: !session.finalTexts.length && Boolean(session.interimText.trim()),
+      finalChars: finalText.length,
+      interimChars: interimText.length,
+      selectedTextSource: source,
+      usedInterimFallback: source === 'interim',
     })
 
     session.resolve({
@@ -455,6 +459,33 @@ export function createDeepgramStreamingProvider(
   }
 
   return { start, pushChunk, stop, cancel }
+}
+
+export function chooseDeepgramStreamingTranscriptText(
+  finalText: string,
+  interimText: string,
+): { text: string; source: 'final' | 'interim' | 'empty' } {
+  if (!finalText && !interimText) return { text: '', source: 'empty' }
+  if (!finalText) return { text: interimText, source: 'interim' }
+  if (!interimText) return { text: finalText, source: 'final' }
+
+  // Flux can emit multiple TurnInfo turns in one stream. A committed
+  // EndOfTurn from an earlier phrase may leave `finalText` non-empty while the
+  // actively spoken tail remains only in the latest interim. A real trace that
+  // exposed the bug had finalChars=19 ("What are you doing?") and
+  // interimChars=194 (the actual requested dictation); the old `final || interim`
+  // rule threw away the last ~10 seconds.
+  //
+  // Prefer the richer candidate. If the interim contains the final text, it is
+  // the cumulative stream transcript and therefore strictly better. If the
+  // interim is simply longer, it is still the only candidate that contains the
+  // uncommitted tail; surfacing it may be slightly less polished, but losing the
+  // user's last sentence is much worse. Only prefer final when it is at least as
+  // complete as interim.
+  if (interimText !== finalText && (interimText.includes(finalText) || interimText.length > finalText.length)) {
+    return { text: interimText, source: 'interim' }
+  }
+  return { text: finalText, source: 'final' }
 }
 
 function extractDeepgramTranscript(message: Record<string, unknown>): string {
