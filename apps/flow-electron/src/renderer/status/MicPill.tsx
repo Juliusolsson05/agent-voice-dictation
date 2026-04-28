@@ -12,14 +12,14 @@ type State = 'idle' | 'recording' | 'transcribing' | 'error'
 
 type Props = {
   state: State
-  level: number
+  levels: number[]
   error: string | null
   handsFree: boolean
   onStop: () => void
   onCancel: () => void
 }
 
-export function MicPill({ state, level, error, handsFree, onStop, onCancel }: Props) {
+export function MicPill({ state, levels, error, handsFree, onStop, onCancel }: Props) {
   return (
     <div style={shellStyle}>
       <div
@@ -52,7 +52,7 @@ export function MicPill({ state, level, error, handsFree, onStop, onCancel }: Pr
               {shortError(error)}
             </span>
           ) : (
-            <Bars level={level} active={state === 'recording'} />
+            <Bars levels={levels} active={state === 'recording'} />
           )}
         </div>
 
@@ -71,19 +71,19 @@ export function MicPill({ state, level, error, handsFree, onStop, onCancel }: Pr
   )
 }
 
-function Bars({ level, active }: { level: number; active: boolean }) {
-  // Keep the pleasant sine-wave feel, but make the mic level the amplitude
-  // source. The earlier shimmer could move even when the meter was flat, which
-  // made it feel detached from speech. This version only lets the sine curve
-  // shape real energy that came from the microphone.
-  const weights = [0.45, 0.75, 1, 0.7, 0.5]
-  const phases = [0, 0.17, 0.34, 0.51, 0.68]
+function Bars({ levels, active }: { levels: number[]; active: boolean }) {
+  // The bars are no longer decorative clones of one level. Each value is a
+  // speech-frequency band from the active mic stream, with the sine curve only
+  // adding a small organic bend. If the room is quiet, the bars should be calm;
+  // if consonants spike in the high bands, the right-side bars should react.
+  const phases = [0, 0.11, 0.23, 0.37, 0.52, 0.68, 0.84]
   const t = (Date.now() % 700) / 700
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 3, height: 18 }}>
-      {weights.map((weight, i) => {
-        const wave = active ? 0.7 + 0.3 * Math.abs(Math.sin((t + phases[i]) * Math.PI * 2)) : 1
-        const responsive = active ? Math.max(level, 0.08) * weight * wave : 0.04
+    <div style={{ display: 'flex', alignItems: 'center', gap: 3, height: 20 }}>
+      {phases.map((phase, i) => {
+        const voice = levels[i] ?? 0
+        const wave = active ? 0.86 + 0.14 * Math.abs(Math.sin((t + phase) * Math.PI * 2)) : 1
+        const responsive = active ? Math.max(voice, 0.025) * wave : 0.02
         const h = Math.max(3, Math.round(responsive * 18))
         return (
           <span
@@ -91,6 +91,7 @@ function Bars({ level, active }: { level: number; active: boolean }) {
             style={{
               width: 3,
               height: h,
+              opacity: active ? 0.62 + Math.min(0.38, voice * 0.7) : 0.5,
               background: active ? 'var(--accent)' : 'var(--ink-mute)',
               borderRadius: 2,
               transition: 'height 28ms linear',

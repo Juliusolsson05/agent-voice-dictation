@@ -6,8 +6,11 @@
   "main": "out/main/index.js",
   "type": "module",
   "scripts": {
+    "predev": "npm --prefix ../.. run build",
     "dev": "electron-vite dev",
+    "prebuild": "npm --prefix ../.. run build",
     "build": "electron-vite build",
+    "prestart": "npm --prefix ../.. run build",
     "start": "electron-vite preview",
     "test": "node --import tsx --test \"src/**/*.test.ts\""
   },

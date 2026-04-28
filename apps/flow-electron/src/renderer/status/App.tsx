@@ -22,9 +22,20 @@ import { MicPill } from './MicPill'
 
 type State = 'idle' | 'recording' | 'transcribing' | 'error'
 
+const EMPTY_LEVELS = [0, 0, 0, 0, 0, 0, 0]
+const VOICE_BANDS_HZ: Array<[number, number]> = [
+  [120, 240],
+  [240, 420],
+  [420, 700],
+  [700, 1100],
+  [1100, 1700],
+  [1700, 2600],
+  [2600, 3800],
+]
+
 export function App() {
   const [state, setState] = useState<State>('idle')
-  const [level, setLevel] = useState(0) // 0..1 visualizer signal
+  const [levels, setLevels] = useState<number[]>(EMPTY_LEVELS)
   const [error, setError] = useState<string | null>(null)
   const [handsFree, setHandsFree] = useState(false)
   const recRef = useRef<MediaRecorder | null>(null)
@@ -35,7 +46,8 @@ export function App() {
   const audioCtxRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const rafRef = useRef<number | null>(null)
-  const levelRef = useRef(0)
+  const levelRefs = useRef<number[]>([...EMPTY_LEVELS])
+  const noiseFloorRef = useRef<number[]>(VOICE_BANDS_HZ.map(() => 0.08))
 
   const stopMeter = useCallback(() => {
     if (rafRef.current !== null) {
@@ -43,8 +55,9 @@ export function App() {
       rafRef.current = null
     }
     analyserRef.current = null
-    levelRef.current = 0
-    setLevel(0)
+    levelRefs.current = [...EMPTY_LEVELS]
+    noiseFloorRef.current = VOICE_BANDS_HZ.map(() => 0.08)
+    setLevels(EMPTY_LEVELS)
     if (audioCtxRef.current) {
       void audioCtxRef.current.close()
       audioCtxRef.current = null
@@ -54,39 +67,55 @@ export function App() {
   const startMeter = useCallback((stream: MediaStream) => {
     // AudioContext + AnalyserNode is the cheapest accurate local meter. This is
     // only a visual affordance; Deepgram is the actual speech source of truth.
-    // The meter needs to feel immediate, so we avoid heavy smoothing and use an
-    // asymmetric envelope: very fast attack when speech starts, slower release
-    // when speech drops. That tracks syllables without flickering off between
-    // words.
+    //
+    // The first meter used one RMS number for the whole waveform, which meant
+    // every bar was the same signal wearing different weights. That can feel
+    // delayed or fake because a voice is not a single scalar; consonants,
+    // vowels, and room noise live in different frequency ranges. Here each bar
+    // tracks a speech-frequency band and subtracts a slowly moving noise floor.
+    // The pill still keeps its sine-curve personality in MicPill, but the
+    // amplitude now comes from actual microphone energy per band.
     const ctx = new AudioContext()
     const src = ctx.createMediaStreamSource(stream)
     const analyser = ctx.createAnalyser()
-    analyser.fftSize = 512
-    analyser.smoothingTimeConstant = 0
+    analyser.fftSize = 1024
+    analyser.minDecibels = -92
+    analyser.maxDecibels = -22
+    analyser.smoothingTimeConstant = 0.12
     src.connect(analyser)
     audioCtxRef.current = ctx
     analyserRef.current = analyser
-    const data = new Uint8Array(analyser.fftSize)
+    void ctx.resume()
+    const frequencyData = new Uint8Array(analyser.frequencyBinCount)
+    const bandBins = VOICE_BANDS_HZ.map(([low, high]) => ({
+      start: Math.max(1, Math.floor(low / (ctx.sampleRate / analyser.fftSize))),
+      end: Math.max(2, Math.ceil(high / (ctx.sampleRate / analyser.fftSize))),
+    }))
     const tick = () => {
       const a = analyserRef.current
       if (!a) return
-      a.getByteTimeDomainData(data)
-      let sum = 0
-      let peak = 0
-      for (let i = 0; i < data.length; i++) {
-        const v = Math.abs(data[i] - 128) / 128
-        sum += v * v
-        if (v > peak) peak = v
-      }
-      const rms = Math.sqrt(sum / data.length)
-      const rawSignal = Math.max(peak * 2.2, rms * 11)
-      const gatedSignal = rawSignal < 0.025 ? 0 : rawSignal
-      const signal = Math.min(1, gatedSignal)
-      const previous = levelRef.current
-      const attack = signal > previous ? 0.82 : 0.26
-      const next = previous + (signal - previous) * attack
-      levelRef.current = next
-      setLevel(next)
+      a.getByteFrequencyData(frequencyData)
+      const next = bandBins.map(({ start, end }, i) => {
+        let sum = 0
+        let count = 0
+        for (let bin = start; bin <= end && bin < frequencyData.length; bin++) {
+          sum += frequencyData[bin] / 255
+          count += 1
+        }
+        const energy = count ? sum / count : 0
+        const previousFloor = noiseFloorRef.current[i] ?? 0.08
+        const floorRate = energy < previousFloor ? 0.08 : 0.006
+        const floor = previousFloor + (energy - previousFloor) * floorRate
+        noiseFloorRef.current[i] = floor
+
+        const voiceEnergy = Math.max(0, energy - floor - 0.012)
+        const signal = Math.min(1, Math.pow(voiceEnergy * 8.5, 0.72))
+        const previous = levelRefs.current[i] ?? 0
+        const attack = signal > previous ? 0.74 : 0.22
+        return previous + (signal - previous) * attack
+      })
+      levelRefs.current = next
+      setLevels(next)
       rafRef.current = requestAnimationFrame(tick)
     }
     rafRef.current = requestAnimationFrame(tick)
@@ -247,7 +276,7 @@ export function App() {
   return (
     <MicPill
       state={state}
-      level={level}
+      levels={levels}
       error={error}
       handsFree={handsFree}
       onStop={stopRecording}
