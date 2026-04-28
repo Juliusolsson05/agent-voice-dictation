@@ -249,6 +249,12 @@ export function createDeepgramStreamingProvider(
   }
 
   function cancel(id: string): void {
+    // Cancel must drop both maps. failedSessions only gets cleared by stop()
+    // reading the entry, but if the renderer cancels (X button, hotkey held
+    // <180ms, audible-error reset) we never call stop, so any stored failure
+    // would leak forever. Cancel is the user saying "I do not care about the
+    // outcome" — drop the bookkeeping with the audio.
+    failedSessions.delete(id)
     const session = sessions.get(id)
     if (!session) return
     sessions.delete(id)
