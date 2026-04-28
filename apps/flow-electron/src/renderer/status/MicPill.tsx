@@ -48,8 +48,8 @@ export function MicPill({ state, level, error, handsFree, onStop, onCancel }: Pr
           {state === 'transcribing' ? (
             <DotsAnimating />
           ) : state === 'error' ? (
-            <span style={{ color: 'white', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
-              error
+            <span style={errorTextStyle}>
+              {shortError(error)}
             </span>
           ) : (
             <Bars level={level} active={state === 'recording'} />
@@ -83,7 +83,7 @@ function Bars({ level, active }: { level: number; active: boolean }) {
     <div style={{ display: 'flex', alignItems: 'center', gap: 3, height: 18 }}>
       {phases.map((p, i) => {
         const wave = active ? Math.abs(Math.sin((t + p) * Math.PI * 2)) : 0
-        const v = active ? Math.max(level * 0.6, 0.2) * (0.6 + 0.4 * wave) : 0.05
+        const v = active ? Math.max(level, 0.12) * (0.55 + 0.45 * wave) : 0.05
         const h = Math.max(4, Math.round(v * 18))
         return (
           <span
@@ -100,6 +100,14 @@ function Bars({ level, active }: { level: number; active: boolean }) {
       })}
     </div>
   )
+}
+
+function shortError(error: string | null): string {
+  if (!error) return 'error'
+  if (error.includes('No API key')) return 'missing key'
+  if (error.includes('No audio')) return 'no audio'
+  if (error.includes('Permission')) return 'permission'
+  return 'error'
 }
 
 function DotsAnimating() {
@@ -168,6 +176,16 @@ const waveStyle: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   height: 18,
+}
+
+const errorTextStyle: React.CSSProperties = {
+  color: 'white',
+  fontSize: 10,
+  fontFamily: 'var(--font-mono)',
+  maxWidth: 92,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
 }
 
 const leftButtonStyle: React.CSSProperties = {

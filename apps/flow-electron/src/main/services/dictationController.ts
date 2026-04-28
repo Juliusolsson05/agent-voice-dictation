@@ -13,6 +13,10 @@ import {
 import { polishTranscriptWithOpenRouter } from 'agent-voice-dictation'
 
 import { getSecret } from '@main/secrets/safeStorageStore.js'
+import {
+  getOpenRouterApiKeyFromEnv,
+  getSttApiKeyFromEnv,
+} from '@main/services/envKeys.js'
 import { loadSettings, type AppSettings, type SttProviderId } from '@main/services/settingsStore.js'
 import { appendRecent, type DictationRecord } from '@main/services/recentsStore.js'
 
@@ -50,7 +54,7 @@ const SECRET_IDS: Record<SttProviderId, string> = {
   elevenlabs: 'stt.elevenlabs',
 }
 
-async function transcribe(
+export async function transcribeForProvider(
   provider: SttProviderId,
   apiKey: string,
   audio: ArrayBuffer,
@@ -74,15 +78,15 @@ async function transcribe(
   }
   switch (provider) {
     case 'assemblyai':
-      return transcribeAssemblyAi(baseOpts)
+      return transcribeAssemblyAi({}, baseOpts)
     case 'deepgram':
-      return transcribeDeepgram(baseOpts)
+      return transcribeDeepgram({}, baseOpts)
     case 'openai':
-      return transcribeOpenAi(baseOpts)
+      return transcribeOpenAi({}, baseOpts)
     case 'gladia':
-      return transcribeGladia(baseOpts)
+      return transcribeGladia({}, baseOpts)
     case 'elevenlabs':
-      return transcribeElevenLabs(baseOpts)
+      return transcribeElevenLabs({}, baseOpts)
   }
 }
 
@@ -91,7 +95,7 @@ async function maybePolish(
   settings: AppSettings,
 ): Promise<{ polished: string | null; model: string | null }> {
   if (!settings.polishEnabled) return { polished: null, model: null }
-  const apiKey = await getSecret('openrouter')
+  const apiKey = await getSecret('openrouter') ?? await getOpenRouterApiKeyFromEnv()
   if (!apiKey) {
     // Polish is optional. Missing key is not a failure — the user
     // gets the raw transcript anyway. The Settings UI surfaces the
@@ -147,11 +151,12 @@ export async function runDictation(input: DictationInput): Promise<DictationOutc
   const startedAt = Date.now()
   const settings = await loadSettings()
   const apiKey = await getSecret(SECRET_IDS[settings.sttProvider])
+    ?? await getSttApiKeyFromEnv(settings.sttProvider)
   if (!apiKey) {
     throw new Error(`No API key configured for provider "${settings.sttProvider}"`)
   }
 
-  const transcript = await transcribe(
+  const transcript = await transcribeForProvider(
     settings.sttProvider,
     apiKey,
     input.audio,

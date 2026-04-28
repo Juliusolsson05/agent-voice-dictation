@@ -55,8 +55,14 @@ export default defineConfig({
     // file:// in production and via the dev server URL with the route
     // path in development (the windows themselves pick which HTML to
     // load via createWindow's loadFile/loadURL branch).
+    //
+    // Use an absolute outDir. Vite resolves a relative outDir against
+    // the renderer `root`, not against this config file, which on a
+    // first build silently put the files four levels up
+    // (~Desktop/Development/agent-voice-dictation/out/renderer)
+    // instead of inside the app — Electron then 404'd on file://.
     build: {
-      outDir: '../../out/renderer',
+      outDir: resolve(__dirname, 'out/renderer'),
       emptyOutDir: true,
       rollupOptions: {
         input: {

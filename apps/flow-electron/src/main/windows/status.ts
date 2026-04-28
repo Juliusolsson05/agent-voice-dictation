@@ -94,10 +94,31 @@ export async function createStatusWindow(): Promise<BrowserWindow> {
 
 export function showStatus(): void {
   if (!status || status.isDestroyed()) return
+  void applyOverlayMode()
+  // Always reassert these at show-time. macOS Spaces/fullscreen window
+  // behavior can be surprisingly stateful after displays sleep, apps
+  // enter fullscreen, or Mission Control moves windows around. The
+  // status pill is not normal app chrome; it is a HUD over the active
+  // target app, so every show must re-pin it instead of trusting the
+  // constructor state from minutes ago.
+  status.setAlwaysOnTop(true, 'screen-saver')
+  status.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  status.moveTop()
   status.showInactive()
 }
 
 export function hideStatus(): void {
   if (!status || status.isDestroyed()) return
   status.hide()
+}
+
+async function applyOverlayMode(): Promise<void> {
+  if (!status || status.isDestroyed()) return
+  const settings = await loadSettings()
+  // Default mode is hold/toggle-to-talk: the pill should be visible
+  // but should not be an app the user can click into. If the Browser
+  // window accepts mouse events it feels like a normal floating panel
+  // and can interfere with the app underneath. Hands-free mode is the
+  // explicit exception because its X/stop buttons need pointer input.
+  status.setIgnoreMouseEvents(!settings.handsFreeMode, { forward: true })
 }
