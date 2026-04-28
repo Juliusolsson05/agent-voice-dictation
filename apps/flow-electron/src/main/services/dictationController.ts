@@ -2,29 +2,16 @@ import { clipboard } from 'electron'
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 
-import {
-  transcribeAssemblyAi,
-  transcribeDeepgram,
-  transcribeOpenAi,
-  transcribeGladia,
-  transcribeElevenLabs,
-  type SpeechTraceEvent,
-  type SpeechTranscript,
-} from 'agent-voice-dictation'
+import { type SpeechTraceEvent } from 'agent-voice-dictation'
 import { polishTranscriptWithOpenRouter } from 'agent-voice-dictation'
 
+import { getSpeechProvider } from '@main/providers/registry.js'
+import type { SpeechProviderRuntime } from '@main/providers/types.js'
 import { getSecret } from '@main/secrets/safeStorageStore.js'
 import {
   getOpenRouterApiKeyFromEnv,
   getSttApiKeyFromEnv,
 } from '@main/services/envKeys.js'
-import {
-  cancelDeepgramStreamingSession,
-  deepgramStreamingModel,
-  pushDeepgramStreamingChunk,
-  startDeepgramStreamingSession,
-  stopDeepgramStreamingSession,
-} from '@main/services/deepgramStreaming.js'
 import { loadSettings, type AppSettings, type SttProviderId } from '@main/services/settingsStore.js'
 import { appendRecent, type DictationRecord } from '@main/services/recentsStore.js'
 
@@ -33,7 +20,7 @@ import { appendRecent, type DictationRecord } from '@main/services/recentsStore.
 // optionally polished, optionally pasted result. It owns:
 //
 //   - secret resolution (look up the right key for the active provider)
-//   - provider dispatch (one switch on settings.sttProvider)
+//   - provider dispatch through the provider registry
 //   - optional LLM polish via OpenRouter
 //   - clipboard write + simulated paste at the OS cursor
 //   - persistence into the recents log
@@ -54,87 +41,91 @@ export type DictationOutcome = {
   pasted: boolean
 }
 
-const SECRET_IDS: Record<SttProviderId, string> = {
-  assemblyai: 'stt.assemblyai',
-  deepgram: 'stt.deepgram',
-  openai: 'stt.openai',
-  gladia: 'stt.gladia',
-  elevenlabs: 'stt.elevenlabs',
-}
-
 const DEEPSEEK_POLISH_TEMPORARILY_DISABLED = true
 
-export async function transcribeForProvider(
-  provider: SttProviderId,
-  apiKey: string,
-  audio: ArrayBuffer,
-  mimeType: string | undefined,
-  language: string,
-  onTrace: (event: SpeechTraceEvent) => void,
-): Promise<SpeechTranscript> {
-  // Each provider has its own client because their request shapes
-  // are not standardized. The `agent-voice-dictation` package
-  // normalizes the responses to a single SpeechTranscript shape.
-  // The package's TranscribeOptions wraps the raw bytes in
-  // { data, mimeType, filename } so providers can pick the right
-  // upload strategy (multipart vs raw body) without leaking that
-  // decision into our caller.
-  const baseOpts = {
-    apiKey,
-    audio: {
-      data: audio,
-      ...(mimeType ? { mimeType } : {}),
-    },
-    language,
-    onTrace,
+// The streaming provider owns its own WebSocket/session lifecycle, but the
+// renderer only passes us an opaque session id after start. This tiny map is
+// the controller's routing table back to the provider that created that id. It
+// keeps Deepgram-specific state out of the controller while still making future
+// streaming providers straightforward: register the session id with whichever
+// provider started it, then route push/stop/cancel through the same interface.
+const activeStreamingProviders = new Map<string, SttProviderId>()
+
+async function getProviderApiKey(provider: SpeechProviderRuntime): Promise<string> {
+  const apiKey = await getSecret(provider.secretId)
+    ?? await getSttApiKeyFromEnv(provider.id)
+  if (!apiKey) {
+    throw new Error(`No API key configured for provider "${provider.id}"`)
   }
-  switch (provider) {
-    case 'assemblyai':
-      return transcribeAssemblyAi({}, baseOpts)
-    case 'deepgram':
-      return transcribeDeepgram({}, baseOpts)
-    case 'openai':
-      return transcribeOpenAi({}, baseOpts)
-    case 'gladia':
-      return transcribeGladia({}, baseOpts)
-    case 'elevenlabs':
-      return transcribeElevenLabs({}, baseOpts)
-  }
+  return apiKey
 }
 
 export async function startStreamingDictation(mimeType?: string): Promise<{ id: string }> {
-  const apiKey = await getSecret(SECRET_IDS.deepgram)
-    ?? await getSttApiKeyFromEnv('deepgram')
-  if (!apiKey) {
-    throw new Error('No API key configured for provider "deepgram"')
+  const settings = await loadSettings()
+  const provider = getSpeechProvider(settings.sttProvider)
+  if (!provider.streaming) {
+    throw new Error(`Provider "${provider.id}" does not support streaming dictation`)
   }
-  return startDeepgramStreamingSession({
+  const apiKey = await getProviderApiKey(provider)
+  const session = provider.streaming.start({
     apiKey,
     ...(mimeType ? { mimeType } : {}),
     onTrace: event => logDictationTrace(event.phase, event.details),
   })
+  activeStreamingProviders.set(session.id, provider.id)
+  return session
 }
 
 export function pushStreamingDictationChunk(id: string, chunk: ArrayBuffer): void {
-  pushDeepgramStreamingChunk(id, chunk)
+  const provider = getActiveStreamingProvider(id, { required: false })
+  if (!provider) return
+  provider.streaming?.pushChunk(id, chunk)
 }
 
 export async function stopStreamingDictation(id: string): Promise<DictationOutcome> {
   const settings = await loadSettings()
-  const transcript = await stopDeepgramStreamingSession(id)
+  const provider = getActiveStreamingProvider(id)
+  if (!provider) throw new Error(`No active streaming dictation session "${id}"`)
+  let transcript
+  try {
+    transcript = await provider.streaming?.stop(id)
+  } finally {
+    activeStreamingProviders.delete(id)
+  }
+  if (!transcript) throw new Error(`Provider "${provider.id}" does not support streaming dictation`)
   return finalizeDictationText({
     id: transcript.id,
     startedAt: transcript.startedAt,
     raw: transcript.raw,
-    provider: 'deepgram',
-    model: deepgramStreamingModel,
+    provider: transcript.provider,
+    model: transcript.model,
     sttDoneAt: transcript.sttDoneAt,
     settings,
   })
 }
 
 export function cancelStreamingDictation(id: string): void {
-  cancelDeepgramStreamingSession(id)
+  const provider = getActiveStreamingProvider(id, { required: false })
+  if (!provider) return
+  provider.streaming?.cancel(id)
+  activeStreamingProviders.delete(id)
+}
+
+function getActiveStreamingProvider(
+  id: string,
+  { required = true }: { required?: boolean } = {},
+): SpeechProviderRuntime | null {
+  const providerId = activeStreamingProviders.get(id)
+  if (!providerId) {
+    if (required) throw new Error(`No active streaming dictation session "${id}"`)
+    return null
+  }
+  const provider = getSpeechProvider(providerId)
+  if (!provider.streaming) {
+    activeStreamingProviders.delete(id)
+    throw new Error(`Provider "${provider.id}" does not support streaming dictation`)
+  }
+  return provider
 }
 
 async function maybePolish(
@@ -214,24 +205,20 @@ export async function runDictation(input: DictationInput): Promise<DictationOutc
     mimeType: input.mimeType ?? null,
   })
   const settings = await loadSettings()
-  const apiKey = await getSecret(SECRET_IDS[settings.sttProvider])
-    ?? await getSttApiKeyFromEnv(settings.sttProvider)
-  if (!apiKey) {
-    throw new Error(`No API key configured for provider "${settings.sttProvider}"`)
-  }
+  const provider = getSpeechProvider(settings.sttProvider)
+  const apiKey = await getProviderApiKey(provider)
 
-  const transcript = await transcribeForProvider(
-    settings.sttProvider,
+  const transcript = await provider.transcribe({
     apiKey,
-    input.audio,
-    input.mimeType,
-    'en',
-    event => logProviderTrace(runId, event),
-  )
+    audio: input.audio,
+    ...(input.mimeType ? { mimeType: input.mimeType } : {}),
+    language: 'en',
+    onTrace: event => logProviderTrace(runId, event),
+  })
   const sttDoneAt = Date.now()
   logDictationTrace('stt:done', {
     runId,
-    provider: settings.sttProvider,
+    provider: provider.id,
     sttMs: sttDoneAt - startedAt,
     transcriptChars: transcript.text.length,
     transcriptLanguage: transcript.language ?? null,
@@ -269,7 +256,7 @@ export async function runDictation(input: DictationInput): Promise<DictationOutc
     ts: startedAt,
     raw: transcript.text,
     polished: polish.polished,
-    provider: settings.sttProvider,
+    provider: provider.id,
     model: polish.model,
     durationMs: polishDoneAt - startedAt,
   }
@@ -301,7 +288,7 @@ async function finalizeDictationText({
   id: string
   startedAt: number
   raw: string
-  provider: string
+  provider: SttProviderId
   model: string | null
   sttDoneAt: number
   settings: AppSettings

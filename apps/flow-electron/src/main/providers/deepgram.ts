@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import WebSocket from 'ws'
+import { transcribeDeepgram } from 'agent-voice-dictation'
+import type {
+  ProviderTrace,
+  SpeechProviderRuntime,
+  StreamingStartInput,
+  StreamingTranscript,
+} from './types.js'
 
-export type DeepgramStreamingTrace = {
-  phase: string
-  details: Record<string, unknown>
-}
-
-export type DeepgramStreamingOutcome = {
+type DeepgramStreamingOutcome = {
   id: string
   startedAt: number
   raw: string
@@ -31,7 +33,7 @@ type DeepgramStreamingSession = {
   resolve: (outcome: DeepgramStreamingOutcome) => void
   reject: (err: Error) => void
   done: Promise<DeepgramStreamingOutcome>
-  onTrace: (event: DeepgramStreamingTrace) => void
+  onTrace: (event: ProviderTrace) => void
 }
 
 const DEEPGRAM_STREAM_MODEL = 'flux-general-en'
@@ -39,15 +41,11 @@ const DEEPGRAM_CLOSE_GRACE_MS = 140
 const sessions = new Map<string, DeepgramStreamingSession>()
 const failedSessions = new Map<string, Error>()
 
-export function startDeepgramStreamingSession({
+function startDeepgramStreamingSession({
   apiKey,
   mimeType,
   onTrace,
-}: {
-  apiKey: string
-  mimeType?: string
-  onTrace: (event: DeepgramStreamingTrace) => void
-}): { id: string } {
+}: StreamingStartInput): { id: string } {
   const id = randomUUID()
   const startedAt = Date.now()
   const url = new URL('wss://api.deepgram.com/v2/listen')
@@ -152,7 +150,7 @@ export function startDeepgramStreamingSession({
   return { id }
 }
 
-export function pushDeepgramStreamingChunk(id: string, chunk: ArrayBuffer): void {
+function pushDeepgramStreamingChunk(id: string, chunk: ArrayBuffer): void {
   const session = sessions.get(id)
   if (!session || session.stopped) return
   const buffer = Buffer.from(chunk)
@@ -168,7 +166,7 @@ export function pushDeepgramStreamingChunk(id: string, chunk: ArrayBuffer): void
   }
 }
 
-export async function stopDeepgramStreamingSession(id: string): Promise<DeepgramStreamingOutcome> {
+async function stopDeepgramStreamingSession(id: string): Promise<StreamingTranscript> {
   const failed = failedSessions.get(id)
   if (failed) {
     failedSessions.delete(id)
@@ -205,7 +203,7 @@ export async function stopDeepgramStreamingSession(id: string): Promise<Deepgram
   return session.done
 }
 
-export function cancelDeepgramStreamingSession(id: string): void {
+function cancelDeepgramStreamingSession(id: string): void {
   const session = sessions.get(id)
   if (!session) return
   sessions.delete(id)
@@ -217,7 +215,37 @@ export function cancelDeepgramStreamingSession(id: string): void {
   }
 }
 
-export const deepgramStreamingModel = DEEPGRAM_STREAM_MODEL
+export const deepgramProvider: SpeechProviderRuntime = {
+  id: 'deepgram',
+  secretId: 'stt.deepgram',
+  transcribe(input) {
+    return transcribeDeepgram({}, {
+      apiKey: input.apiKey,
+      audio: {
+        data: input.audio,
+        ...(input.mimeType ? { mimeType: input.mimeType } : {}),
+      },
+      language: input.language,
+      onTrace: input.onTrace,
+    })
+  },
+  streaming: {
+    start: startDeepgramStreamingSession,
+    pushChunk: pushDeepgramStreamingChunk,
+    async stop(id) {
+      const result = await stopDeepgramStreamingSession(id)
+      return {
+        id: result.id,
+        startedAt: result.startedAt,
+        raw: result.raw,
+        provider: 'deepgram',
+        model: result.model,
+        sttDoneAt: result.sttDoneAt,
+      }
+    },
+    cancel: cancelDeepgramStreamingSession,
+  },
+}
 
 function handleDeepgramMessage(session: DeepgramStreamingSession, data: WebSocket.RawData): void {
   const raw = data.toString()

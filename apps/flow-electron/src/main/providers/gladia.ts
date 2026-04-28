@@ -1,0 +1,18 @@
+import { transcribeGladia } from 'agent-voice-dictation'
+import type { SpeechProviderRuntime } from './types.js'
+
+export const gladiaProvider: SpeechProviderRuntime = {
+  id: 'gladia',
+  secretId: 'stt.gladia',
+  transcribe(input) {
+    return transcribeGladia({}, {
+      apiKey: input.apiKey,
+      audio: {
+        data: input.audio,
+        ...(input.mimeType ? { mimeType: input.mimeType } : {}),
+      },
+      language: input.language,
+      onTrace: input.onTrace,
+    })
+  },
+}
