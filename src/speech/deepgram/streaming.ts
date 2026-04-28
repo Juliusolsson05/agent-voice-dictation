@@ -28,6 +28,17 @@ export type DeepgramStreamingStartInput = {
   apiKey: string
   mimeType?: string
   onTrace?: ((event: SpeechTraceEvent) => void) | undefined
+  /** Optional host callback for live transcript previews. The streaming
+   *  provider still owns Deepgram protocol and final-selection rules; host apps
+   *  use this only for UI optimism while the socket is alive. */
+  onTranscript?: ((event: DeepgramStreamingTranscriptEvent) => void) | undefined
+}
+
+export type DeepgramStreamingTranscriptEvent = {
+  id: string
+  text: string
+  isFinal: boolean
+  source: 'final' | 'interim'
 }
 
 export type DeepgramStreamingTranscript = {
@@ -65,6 +76,7 @@ type DeepgramStreamingSession = {
   reject: (err: Error) => void
   done: Promise<DeepgramStreamingTranscript>
   onTrace: (event: SpeechTraceEvent) => void
+  onTranscript: (event: DeepgramStreamingTranscriptEvent) => void
 }
 
 const DEFAULT_DEEPGRAM_STREAM_MODEL = 'flux-general-en'
@@ -80,12 +92,11 @@ export function createDeepgramStreamingProvider(
   const sessions = new Map<string, DeepgramStreamingSession>()
   const failedSessions = new Map<string, Error>()
 
-  function start({ apiKey, mimeType, onTrace }: DeepgramStreamingStartInput): { id: string } {
+  function start({ apiKey, mimeType, onTrace, onTranscript }: DeepgramStreamingStartInput): { id: string } {
     const id = randomUUID()
     const startedAt = Date.now()
     const url = new URL(defaults.baseUrl ?? 'wss://api.deepgram.com/v2/listen')
     url.searchParams.set('model', model)
-
     // Deepgram streaming is package-owned because it is provider protocol, not
     // app behavior. The desktop app and cc-shell both need the same guarantees:
     // queue chunks until the socket opens, send Deepgram's CloseStream control
@@ -121,6 +132,7 @@ export function createDeepgramStreamingProvider(
         rejectDone = reject
       }),
       onTrace: onTrace ?? (() => {}),
+      onTranscript: onTranscript ?? (() => {}),
     }
     void session.done.catch(() => {})
     sessions.set(id, session)
@@ -170,12 +182,17 @@ export function createDeepgramStreamingProvider(
         chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
       })
       response.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf8')
         trace(session, 'deepgram:handshake-rejected', {
           runId: id,
           statusCode: response.statusCode,
           statusMessage: response.statusMessage,
-          body: Buffer.concat(chunks).toString('utf8'),
+          body,
         })
+        rejectSession(
+          session,
+          new Error(`Deepgram streaming handshake rejected (${response.statusCode ?? 'unknown'}): ${body || response.statusMessage || 'Bad response'}`),
+        )
       })
     })
 
@@ -374,8 +391,20 @@ export function createDeepgramStreamingProvider(
     if (transcript) {
       if (isFinal) {
         session.finalTexts.push(transcript)
+        session.onTranscript({
+          id: session.id,
+          text: session.finalTexts.join(' ').replace(/\s+/g, ' ').trim(),
+          isFinal: true,
+          source: 'final',
+        })
       } else {
         session.interimText = transcript
+        session.onTranscript({
+          id: session.id,
+          text: transcript,
+          isFinal: false,
+          source: 'interim',
+        })
       }
     }
 
@@ -468,24 +497,34 @@ export function chooseDeepgramStreamingTranscriptText(
   if (!finalText && !interimText) return { text: '', source: 'empty' }
   if (!finalText) return { text: interimText, source: 'interim' }
   if (!interimText) return { text: finalText, source: 'final' }
+  if (finalText === interimText) return { text: finalText, source: 'final' }
 
-  // Flux can emit multiple TurnInfo turns in one stream. A committed
-  // EndOfTurn from an earlier phrase may leave `finalText` non-empty while the
-  // actively spoken tail remains only in the latest interim. A real trace that
-  // exposed the bug had finalChars=19 ("What are you doing?") and
-  // interimChars=194 (the actual requested dictation); the old `final || interim`
-  // rule threw away the last ~10 seconds.
+  // Flux multi-turn rules:
   //
-  // Prefer the richer candidate. If the interim contains the final text, it is
-  // the cumulative stream transcript and therefore strictly better. If the
-  // interim is simply longer, it is still the only candidate that contains the
-  // uncommitted tail; surfacing it may be slightly less polished, but losing the
-  // user's last sentence is much worse. Only prefer final when it is at least as
-  // complete as interim.
-  if (interimText !== finalText && (interimText.includes(finalText) || interimText.length > finalText.length)) {
-    return { text: interimText, source: 'interim' }
-  }
-  return { text: finalText, source: 'final' }
+  //   - Each EndOfTurn appends a committed turn to `finalTexts`; we receive
+  //     them here joined as `finalText`.
+  //   - `interimText` is whatever the CURRENTLY OPEN turn is showing — the
+  //     trailing live transcript the user has not yet paused after.
+  //
+  // Three possible relationships between the two:
+  //
+  //   1. `interimText` extends the most recent final ("Hello" → "Hello world"
+  //      mid-turn). Returning interim alone is correct because it is a
+  //      strict superset.
+  //   2. `finalText` already contains `interimText` — the open turn just
+  //      finalized as the same string, or the interim is an older snapshot
+  //      that was already committed. Returning final alone is correct.
+  //   3. Neither contains the other. This is the failure case that lost
+  //      whole sentences before the fix below: a user who spoke turn A,
+  //      paused, then started turn B would have `finalText` from turn A and
+  //      `interimText` from turn B. The old rule "longer wins" picked
+  //      whichever happened to be longer and silently dropped the other.
+  //      The right answer is to surface BOTH, in turn order, with a single
+  //      space between — finals always come first because finalTexts is
+  //      committed-in-order and interim is the still-open turn.
+  if (interimText.includes(finalText)) return { text: interimText, source: 'interim' }
+  if (finalText.includes(interimText)) return { text: finalText, source: 'final' }
+  return { text: `${finalText} ${interimText}`, source: 'final' }
 }
 
 function extractDeepgramTranscript(message: Record<string, unknown>): string {
