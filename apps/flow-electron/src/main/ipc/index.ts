@@ -8,7 +8,6 @@ import {
   type AppSettings,
 } from '@main/services/settingsStore.js'
 import {
-  getSecret,
   setSecret,
   clearSecret,
   listConfiguredSecretIds,
@@ -76,11 +75,16 @@ export function registerIpc(): void {
   ipcMain.handle('secrets:list', async () => listConfiguredSecretIds())
   // Convenience: return only whether a specific id is configured.
   // The renderer Settings UI uses this to show "configured" vs
-  // "missing" badges next to each provider input.
+  // "missing" badges next to each provider input. We deliberately do
+  // NOT call getSecret here: presence is a directory question, not a
+  // value question, and the Settings modal opens with N consecutive
+  // calls (one per provider). Decrypting just to coerce to a boolean
+  // would mean N safeStorage roundtrips and N plaintext copies in
+  // memory for no reason. The encrypted blob's existence is the answer.
   ipcMain.handle('secrets:has', async (_e, params: { id: string }) => {
     if (!params?.id) return false
-    const value = await getSecret(params.id)
-    return Boolean(value)
+    const ids = await listConfiguredSecretIds()
+    return ids.includes(params.id)
   })
 
   // ---- Provider support ----
