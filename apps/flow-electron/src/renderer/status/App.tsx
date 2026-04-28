@@ -281,6 +281,29 @@ export function App() {
           void window.flow.status.hide()
           return
         }
+        // Defense in depth for the misclick case. The discard branch above
+        // catches short hotkey holds, but mic warm-up can eat 100ms+ of a
+        // hold that looks fine in heldMs (the original check), so the actual
+        // recorded audio comes back at ~80–90ms even though the user held
+        // the key for 200ms. Deepgram has nothing useful to transcribe under
+        // ~150ms, and historically this path also tripped UNPARSABLE_CLIENT_MESSAGE
+        // on the provider side when CloseStream landed before any audio.
+        // Cancel the streaming session and bail without going through stop.
+        if (
+          audioDurationMs !== undefined
+          && audioDurationMs < MIN_HOLD_TO_TRANSCRIBE_MS
+        ) {
+          console.log('[status:trace] recorder:stop:short-audio-discard', {
+            audioDurationMs,
+            thresholdMs: MIN_HOLD_TO_TRANSCRIBE_MS,
+          })
+          const sessionId = streamSessionIdRef.current
+          streamSessionIdRef.current = null
+          if (sessionId) void window.flow.dictation.streamCancel(sessionId)
+          resetToIdle()
+          void window.flow.status.hide()
+          return
+        }
         lifecycleRef.current = 'transcribing'
         setState('transcribing')
         try {
