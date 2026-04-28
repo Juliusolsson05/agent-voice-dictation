@@ -1,5 +1,5 @@
 import type { PolishTranscriptOptions, PolishedTranscript, RecentContext } from '../openrouter/types.js'
-import type { AudioInput, SpeechProvider, SpeechTranscript } from '../speech/types.js'
+import type { AudioInput, SpeechProvider, SpeechTraceEvent, SpeechTranscript } from '../speech/types.js'
 
 export type DictationPipelineOptions = {
   speechProvider: SpeechProvider
@@ -15,6 +15,13 @@ export type DictationPipelineOptions = {
     appReferer?: string
   }
   signal?: AbortSignal
+  /** Forwarded to the speech provider so package consumers (cc-shell)
+   *  can observe per-phase latency without subscribing to the provider
+   *  directly. We intentionally do NOT add a separate pipeline-level
+   *  trace channel: the existing SpeechTraceEvent shape carries the
+   *  provider id and phase, and adding a parallel taxonomy would just
+   *  duplicate work for callers wiring up a single console log. */
+  onTrace?: (event: SpeechTraceEvent) => void
 }
 
 export type DictationResult = {
