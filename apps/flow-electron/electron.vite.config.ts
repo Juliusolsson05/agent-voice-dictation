@@ -27,6 +27,12 @@ export default defineConfig({
       outDir: 'out/main',
       rollupOptions: {
         input: resolve(__dirname, 'src/main/index.ts'),
+        // `ws` has optional native helpers (`bufferutil`, `utf-8-validate`) and
+        // a fallback shim. Bundling it through Vite/Rollup produced a broken
+        // runtime object where `bufferUtil.mask` was not a function, crashing on
+        // every audio chunk send. Main runs in Node, so the correct shape is to
+        // leave `ws` as a runtime dependency and let Node resolve it normally.
+        external: ['ws'],
       },
     },
   },
