@@ -399,9 +399,25 @@ export function createDeepgramStreamingProvider(
         })
       } else {
         session.interimText = transcript
+        // Flux's `transcript` field is per-turn, not cumulative
+        // (https://developers.deepgram.com/docs/flux/state). After a turn
+        // closes with EndOfTurn and a new turn opens, every Update event
+        // emits ONLY the new turn's words. Earlier finalized turns live in
+        // `finalTexts` and were never reannounced. If the host renders the
+        // raw interim transcript, the composer flashes back to "just the
+        // current turn" the moment turn N+1's first interim arrives, and
+        // the user watches the previous sentences disappear mid-recording.
+        // Emit the cumulative text (committed turns + open turn) so the
+        // host can paint a stable preview. Use `chooseDeepgramStreamingTranscriptText`
+        // so the same containment/equality rules that govern the final
+        // outcome also govern the live preview — no surprise visual
+        // divergence between "what I see while talking" and "what I see
+        // after release".
+        const finalsAccumulated = session.finalTexts.join(' ').replace(/\s+/g, ' ').trim()
+        const cumulative = chooseDeepgramStreamingTranscriptText(finalsAccumulated, transcript)
         session.onTranscript({
           id: session.id,
-          text: transcript,
+          text: cumulative.text,
           isFinal: false,
           source: 'interim',
         })
