@@ -58,6 +58,7 @@ const SECRET_IDS: Record<SttProviderId, string> = {
 
 const DEEPSEEK_POLISH_TEMPORARILY_DISABLED = true
 const DEEPGRAM_STREAM_MODEL = 'flux-general-en'
+const DEEPGRAM_CLOSE_GRACE_MS = 140
 const streamingSessions = new Map<string, StreamingSession>()
 const failedStreamingSessions = new Map<string, Error>()
 
@@ -264,7 +265,10 @@ export async function stopStreamingDictation(id: string): Promise<DictationOutco
     chunkCount: session.chunkCount,
     audioBytes: session.audioBytes,
     ms: Date.now() - session.startedAt,
+    closeGraceMs: DEEPGRAM_CLOSE_GRACE_MS,
   })
+
+  await sleep(DEEPGRAM_CLOSE_GRACE_MS)
 
   if (session.ws.readyState === WebSocket.OPEN) {
     // Deepgram's WebSocket API supports a CloseStream control message to flush
@@ -280,6 +284,10 @@ export async function stopStreamingDictation(id: string): Promise<DictationOutco
   }
 
   return session.done
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 export function cancelStreamingDictation(id: string): void {

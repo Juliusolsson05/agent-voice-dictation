@@ -28,6 +28,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null)
   const [handsFree, setHandsFree] = useState(false)
   const recRef = useRef<MediaRecorder | null>(null)
+  const stoppingRef = useRef(false)
   const streamSessionIdRef = useRef<string | null>(null)
   const pendingChunkSendsRef = useRef<Promise<void>[]>([])
   const streamRef = useRef<MediaStream | null>(null)
@@ -106,6 +107,7 @@ export function App() {
         streamSessionId: streamSession.id,
       })
       const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+      stoppingRef.current = false
       pendingChunkSendsRef.current = []
       rec.addEventListener('dataavailable', evt => {
         // eslint-disable-next-line no-console
@@ -115,8 +117,8 @@ export function App() {
         })
         const sessionId = streamSessionIdRef.current
         if (evt.data.size > 0 && sessionId) {
-          const pending = evt.data.arrayBuffer().then(buffer => {
-            window.flow.dictation.streamChunk(sessionId, buffer)
+          const pending = evt.data.arrayBuffer().then(async buffer => {
+            await window.flow.dictation.streamChunk(sessionId, buffer)
           })
           pendingChunkSendsRef.current.push(pending)
           void pending.finally(() => {
@@ -139,6 +141,7 @@ export function App() {
 
         const sessionId = streamSessionIdRef.current
         streamSessionIdRef.current = null
+        stoppingRef.current = false
         setState('transcribing')
         try {
           if (!sessionId) throw new Error('No active Deepgram stream')
@@ -180,8 +183,20 @@ export function App() {
 
   const stopRecording = useCallback(() => {
     const rec = recRef.current
-    if (rec && rec.state !== 'inactive') {
-      rec.stop()
+    if (rec && rec.state !== 'inactive' && !stoppingRef.current) {
+      stoppingRef.current = true
+      // `MediaRecorder.stop()` should emit a final dataavailable event, but an
+      // abrupt hotkey release can still race the encoder and our IPC close path.
+      // Requesting data first gives Chromium one explicit chance to flush the
+      // current WebM/Opus page before we close the Deepgram stream.
+      try {
+        rec.requestData()
+      } catch {
+        /* noop */
+      }
+      window.setTimeout(() => {
+        if (rec.state !== 'inactive') rec.stop()
+      }, 35)
     }
   }, [])
 
@@ -190,6 +205,7 @@ export function App() {
     // by the X button in hands-free mode.
     const sessionId = streamSessionIdRef.current
     streamSessionIdRef.current = null
+    stoppingRef.current = false
     pendingChunkSendsRef.current = []
     if (sessionId) void window.flow.dictation.streamCancel(sessionId)
     const rec = recRef.current

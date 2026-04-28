@@ -107,11 +107,12 @@ export function registerIpc(): void {
       return startStreamingDictation(params?.mimeType)
     },
   )
-  ipcMain.on(
+  ipcMain.handle(
     'dictation:stream-chunk',
     (_e, params: { id: string; chunk: ArrayBuffer }) => {
-      if (!params?.id || !params.chunk) return
+      if (!params?.id || !params.chunk) return { ok: true }
       pushStreamingDictationChunk(params.id, params.chunk)
+      return { ok: true }
     },
   )
   ipcMain.handle(
