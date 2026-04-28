@@ -89,7 +89,10 @@ export function pushStreamingDictationChunk(id: string, chunk: ArrayBuffer): voi
   provider.streaming?.pushChunk(id, chunk)
 }
 
-export async function stopStreamingDictation(id: string): Promise<DictationOutcome> {
+export async function stopStreamingDictation(
+  id: string,
+  rendererAudioDurationMs?: number,
+): Promise<DictationOutcome> {
   const settings = await loadSettings()
   const provider = getActiveStreamingProvider(id)
   if (!provider) throw new Error(`No active streaming dictation session "${id}"`)
@@ -100,6 +103,18 @@ export async function stopStreamingDictation(id: string): Promise<DictationOutco
     activeStreamingProviders.delete(id)
   }
   if (!transcript) throw new Error(`Provider "${provider.id}" does not support streaming dictation`)
+  // Prefer the renderer-measured audio duration when present. The streaming
+  // provider can only see session wall-clock time (socket open → close),
+  // which includes mic warm-up, the WebSocket handshake, and Deepgram's
+  // finalization grace — typically 600ms+ of overhead on top of real audio.
+  // The renderer knows when MediaRecorder.start fired and when its onstop
+  // event resolved, which is the actual audio length to within ~30ms of
+  // encoder flush. WPM is derived from this number, so the difference
+  // between the two measurements is the difference between an honest
+  // dashboard and one that systematically under-reports speaking rate.
+  const audioDurationMs = typeof rendererAudioDurationMs === 'number' && rendererAudioDurationMs > 0
+    ? rendererAudioDurationMs
+    : transcript.audioDurationMs
   return finalizeDictationText({
     id: transcript.id,
     startedAt: transcript.startedAt,
@@ -107,7 +122,7 @@ export async function stopStreamingDictation(id: string): Promise<DictationOutco
     provider: transcript.provider,
     model: transcript.model,
     sttDoneAt: transcript.sttDoneAt,
-    audioDurationMs: transcript.audioDurationMs,
+    audioDurationMs,
     settings,
   })
 }

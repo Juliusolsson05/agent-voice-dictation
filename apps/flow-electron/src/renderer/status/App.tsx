@@ -257,6 +257,17 @@ export function App() {
         showTransientError(evt.error?.message ?? 'Recorder failed', evt.error)
       })
       rec.addEventListener('stop', async () => {
+        // Snapshot real audio duration BEFORE we tear anything down. This is
+        // the recorder's MediaRecorder.start → onstop interval, accurate to
+        // within ~30ms of encoder flush. The streaming provider in main can
+        // only see session wall-clock time, which includes mic warm-up and
+        // the WebSocket handshake, so it would under-report WPM by ~600ms+
+        // every session. recordingStartedAtRef may be 0 if the recorder
+        // never actually started (race with cancel) — guard against that.
+        const audioDurationMs = recordingStartedAtRef.current > 0
+          ? Date.now() - recordingStartedAtRef.current
+          : undefined
+
         // The mic stream must be torn down BEFORE we await the
         // network request so the OS shows "mic released" promptly.
         streamRef.current?.getTracks().forEach(t => t.stop())
@@ -279,7 +290,7 @@ export function App() {
           if (!sessionId) throw new Error('No active Deepgram stream')
           await Promise.allSettled(pendingChunkSendsRef.current)
           pendingChunkSendsRef.current = []
-          await window.flow.dictation.streamStop(sessionId)
+          await window.flow.dictation.streamStop(sessionId, audioDurationMs)
         } catch (err) {
           const message = (err as Error)?.message ?? String(err)
           showTransientError(message, err)

@@ -147,14 +147,15 @@ export function registerIpc(): void {
   )
   ipcMain.handle(
     'dictation:stream-stop',
-    async (_e, params: { id: string }) => {
+    async (_e, params: { id: string; audioDurationMs?: number }) => {
       if (!params?.id) throw new Error('dictation:stream-stop requires id')
       // eslint-disable-next-line no-console
       console.log('[dictation:ipc] stream-stop:request', {
         id: params.id,
+        audioDurationMs: params.audioDurationMs ?? null,
         at: Date.now(),
       })
-      return stopStreamingDictation(params.id)
+      return stopStreamingDictation(params.id, params.audioDurationMs)
     },
   )
   ipcMain.handle(
