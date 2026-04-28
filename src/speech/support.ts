@@ -14,9 +14,17 @@ export const STT_PROVIDER_SUPPORT = {
   assemblyai: {
     id: 'assemblyai',
     label: 'AssemblyAI',
-    selectable: true,
-    status: 'available',
-    reason: 'Batch path is covered by live provider tests.',
+    // Selectable in the package sense (the client is live-key validated by
+    // the provider smoke test), but not selectable in the desktop app sense:
+    // the Status renderer currently only drives the streaming IPC path, and
+    // AssemblyAI does not implement streaming. Picking it from Settings used
+    // to throw "Provider does not support streaming dictation" on every
+    // hotkey press with no clear UX recovery. Re-enable once the renderer
+    // either falls back to dictation:run for batch-only providers or we add
+    // a streaming-capable AssemblyAI client.
+    selectable: false,
+    status: 'disabled-unverified',
+    reason: 'Batch path is covered by live tests, but the desktop app currently only drives the streaming path. Pick Deepgram for now.',
   },
   deepgram: {
     id: 'deepgram',
