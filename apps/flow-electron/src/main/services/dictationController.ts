@@ -232,6 +232,9 @@ export async function runDictation(input: DictationInput): Promise<DictationOutc
     transcriptLanguage: transcript.language ?? null,
     audioDurationMs: transcript.durationMs ?? null,
   })
+  if (!transcript.text.trim()) {
+    throw new Error('No speech detected')
+  }
 
   const polish = await maybePolish(transcript.text, settings)
   const polishDoneAt = Date.now()
@@ -305,6 +308,10 @@ async function finalizeDictationText({
   audioDurationMs?: number | null
   settings: AppSettings
 }): Promise<DictationOutcome> {
+  if (!raw.trim()) {
+    throw new Error('No speech detected')
+  }
+
   const polish = await maybePolish(raw, settings)
   const polishDoneAt = Date.now()
   const finalText = formatComposerText(polish.polished ?? raw, settings)

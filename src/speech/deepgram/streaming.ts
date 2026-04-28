@@ -251,6 +251,26 @@ export function createDeepgramStreamingProvider(
       || event === 'EndOfTurn'
     const type = typeof message.type === 'string' ? message.type : null
 
+    if (type === 'Error') {
+      const messageText = typeof message.message === 'string'
+        ? message.message
+        : typeof message.description === 'string'
+          ? message.description
+          : 'Deepgram streaming error'
+      trace(session, 'deepgram:error-message', {
+        runId: session.id,
+        message: messageText,
+        raw: message,
+      })
+      rejectSession(session, new Error(messageText))
+      try {
+        session.ws.close()
+      } catch {
+        /* noop */
+      }
+      return
+    }
+
     if (transcript) {
       if (isFinal) {
         session.finalTexts.push(transcript)

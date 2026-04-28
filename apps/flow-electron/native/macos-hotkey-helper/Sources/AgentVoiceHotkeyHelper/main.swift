@@ -137,11 +137,6 @@ let callback: CGEventTapCallBack = { _, type, event, _ in
     }
   }
 
-  if type == .keyDown && keyMatches(event) {
-    emit("hotkey-down")
-    return nil
-  }
-
   return Unmanaged.passUnretained(event)
 }
 

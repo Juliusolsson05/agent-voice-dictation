@@ -21,6 +21,7 @@ import { MicPill } from './MicPill'
 // The audio buffer crosses the IPC boundary as an ArrayBuffer.
 
 type State = 'idle' | 'recording' | 'transcribing' | 'error'
+type LifecycleState = State | 'starting' | 'stopping'
 
 const EMPTY_LEVELS = [0, 0, 0, 0, 0, 0, 0]
 const VOICE_BANDS_HZ: Array<[number, number]> = [
@@ -40,6 +41,8 @@ export function App() {
   const [handsFree, setHandsFree] = useState(false)
   const [visible, setVisible] = useState(true)
   const recRef = useRef<MediaRecorder | null>(null)
+  const lifecycleRef = useRef<LifecycleState>('idle')
+  const pendingStopRef = useRef(false)
   const stoppingRef = useRef(false)
   const streamSessionIdRef = useRef<string | null>(null)
   const pendingChunkSendsRef = useRef<Promise<void>[]>([])
@@ -123,6 +126,9 @@ export function App() {
   }, [])
 
   const startRecording = useCallback(async () => {
+    if (lifecycleRef.current !== 'idle') return
+    lifecycleRef.current = 'starting'
+    pendingStopRef.current = false
     try {
       const settings = await window.flow.settings.get()
       setHandsFree(settings.handsFreeMode)
@@ -160,6 +166,7 @@ export function App() {
         // eslint-disable-next-line no-console
         console.error('[status] recorder error', evt.error)
         setError(evt.error?.message ?? 'Recorder failed')
+        lifecycleRef.current = 'error'
         setState('error')
       })
       rec.addEventListener('stop', async () => {
@@ -172,6 +179,7 @@ export function App() {
         const sessionId = streamSessionIdRef.current
         streamSessionIdRef.current = null
         stoppingRef.current = false
+        lifecycleRef.current = 'transcribing'
         setState('transcribing')
         try {
           if (!sessionId) throw new Error('No active Deepgram stream')
@@ -183,12 +191,14 @@ export function App() {
           // eslint-disable-next-line no-console
           console.error('[status] dictation failed', err)
           setError(message)
+          lifecycleRef.current = 'error'
           setState('error')
           // Leave the pill visible briefly on error so the user sees
           // the red flash, then hide.
           window.setTimeout(() => void window.flow.status.hide(), 3600)
           return
         }
+        lifecycleRef.current = 'idle'
         setState('idle')
         await window.flow.status.hide()
       })
@@ -198,22 +208,34 @@ export function App() {
       // AudioWorklet resampler in v1.
       rec.start(80)
       recRef.current = rec
+      lifecycleRef.current = 'recording'
       setState('recording')
       setError(null)
       startMeter(stream)
+      if (pendingStopRef.current) {
+        pendingStopRef.current = false
+        window.setTimeout(() => stopRecording(), 0)
+      }
     } catch (err) {
       const message = (err as Error)?.message ?? String(err)
       // eslint-disable-next-line no-console
       console.error('[status] start recording failed', err)
       setError(message)
+      lifecycleRef.current = 'error'
       setState('error')
       window.setTimeout(() => void window.flow.status.hide(), 3600)
     }
   }, [startMeter, stopMeter])
 
   const stopRecording = useCallback(() => {
+    if (lifecycleRef.current === 'starting') {
+      pendingStopRef.current = true
+      return
+    }
+    if (lifecycleRef.current !== 'recording') return
     const rec = recRef.current
     if (rec && rec.state !== 'inactive' && !stoppingRef.current) {
+      lifecycleRef.current = 'stopping'
       stoppingRef.current = true
       // `MediaRecorder.stop()` should emit a final dataavailable event, but an
       // abrupt hotkey release can still race the encoder and our IPC close path.
@@ -249,6 +271,7 @@ export function App() {
     streamRef.current?.getTracks().forEach(t => t.stop())
     streamRef.current = null
     stopMeter()
+    lifecycleRef.current = 'idle'
     setState('idle')
     void window.flow.status.hide()
   }, [stopMeter])
@@ -260,20 +283,20 @@ export function App() {
   useEffect(() => {
     const offDown = window.flow.events.onHotkeyDown(() => {
       setVisible(true)
-      if (state === 'idle') {
+      if (lifecycleRef.current === 'idle') {
         void startRecording()
       }
     })
     const offUp = window.flow.events.onHotkeyUp(() => {
-      if (state === 'recording') {
+      if (lifecycleRef.current === 'recording' || lifecycleRef.current === 'starting') {
         stopRecording()
       }
     })
     const offToggleFallback = window.flow.events.onHotkeyFired(() => {
       setVisible(true)
-      if (state === 'idle') {
+      if (lifecycleRef.current === 'idle') {
         void startRecording()
-      } else if (state === 'recording') {
+      } else if (lifecycleRef.current === 'recording' || lifecycleRef.current === 'starting') {
         stopRecording()
       }
     })
@@ -282,7 +305,7 @@ export function App() {
       offUp()
       offToggleFallback()
     }
-  }, [state, startRecording, stopRecording])
+  }, [startRecording, stopRecording])
 
   useEffect(() => {
     const offOpening = window.flow.events.onStatusOpening(() => setVisible(true))
