@@ -59,6 +59,7 @@ const SECRET_IDS: Record<SttProviderId, string> = {
 const DEEPSEEK_POLISH_TEMPORARILY_DISABLED = true
 const DEEPGRAM_STREAM_MODEL = 'flux-general-en'
 const streamingSessions = new Map<string, StreamingSession>()
+const failedStreamingSessions = new Map<string, Error>()
 
 type StreamingSession = {
   id: string
@@ -127,8 +128,6 @@ export async function startStreamingDictation(mimeType?: string): Promise<{ id: 
 
   const url = new URL('wss://api.deepgram.com/v2/listen')
   url.searchParams.set('model', DEEPGRAM_STREAM_MODEL)
-  url.searchParams.set('language', 'en')
-  url.searchParams.set('smart_format', 'true')
 
   // Flux is the streaming provider path for the Electron app. The old
   // MediaRecorder blob upload path cannot hit sub-second latency because upload
@@ -162,6 +161,11 @@ export async function startStreamingDictation(mimeType?: string): Promise<{ id: 
       rejectDone = reject
     }),
   }
+  // A WebSocket can fail before the renderer sends stop. Without a local catch,
+  // Node reports an unhandled rejection even though the UI will later await
+  // `streamStop`. We still rethrow the stored error from streamStop; this line
+  // only prevents noisy process-level warnings.
+  void session.done.catch(() => {})
   streamingSessions.set(id, session)
 
   logDictationTrace('stream:start', {
@@ -193,6 +197,22 @@ export async function startStreamingDictation(mimeType?: string): Promise<{ id: 
       message: err.message,
     })
     rejectStreamingSession(session, err)
+  })
+
+  ws.on('unexpected-response', (_request, response) => {
+    const chunks: Buffer[] = []
+    response.on('data', chunk => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+    })
+    response.on('end', () => {
+      const body = Buffer.concat(chunks).toString('utf8')
+      logDictationTrace('deepgram:handshake-rejected', {
+        runId: id,
+        statusCode: response.statusCode,
+        statusMessage: response.statusMessage,
+        body,
+      })
+    })
   })
 
   ws.on('close', (code, reason) => {
@@ -229,6 +249,11 @@ export function pushStreamingDictationChunk(id: string, chunk: ArrayBuffer): voi
 }
 
 export async function stopStreamingDictation(id: string): Promise<DictationOutcome> {
+  const failed = failedStreamingSessions.get(id)
+  if (failed) {
+    failedStreamingSessions.delete(id)
+    throw failed
+  }
   const session = streamingSessions.get(id)
   if (!session) throw new Error(`No active streaming dictation session "${id}"`)
   if (session.stopped) return session.done
@@ -435,7 +460,10 @@ function handleDeepgramMessage(session: StreamingSession, data: WebSocket.RawDat
   }
 
   const transcript = extractDeepgramTranscript(message)
-  const isFinal = message.is_final === true || message.speech_final === true
+  const event = typeof message.event === 'string' ? message.event : null
+  const isFinal = message.is_final === true
+    || message.speech_final === true
+    || event === 'EndOfTurn'
   const type = typeof message.type === 'string' ? message.type : null
 
   if (transcript) {
@@ -450,6 +478,7 @@ function handleDeepgramMessage(session: StreamingSession, data: WebSocket.RawDat
     logDictationTrace('deepgram:message', {
       runId: session.id,
       type,
+      event,
       isFinal,
       transcriptChars: transcript.length,
       elapsedMs: Date.now() - session.startedAt,
@@ -458,6 +487,7 @@ function handleDeepgramMessage(session: StreamingSession, data: WebSocket.RawDat
 }
 
 function extractDeepgramTranscript(message: Record<string, unknown>): string {
+  if (typeof message.transcript === 'string') return message.transcript.trim()
   const channel = message.channel as Record<string, unknown> | undefined
   const alternatives = channel?.alternatives as unknown[] | undefined
   const first = alternatives?.[0] as Record<string, unknown> | undefined
@@ -538,7 +568,9 @@ async function finalizeStreamingSession(
 
 function rejectStreamingSession(session: StreamingSession, err: unknown): void {
   streamingSessions.delete(session.id)
-  session.reject(err instanceof Error ? err : new Error(String(err)))
+  const error = err instanceof Error ? err : new Error(String(err))
+  failedStreamingSessions.set(session.id, error)
+  session.reject(error)
 }
 
 function logProviderTrace(runId: string, event: SpeechTraceEvent): void {
