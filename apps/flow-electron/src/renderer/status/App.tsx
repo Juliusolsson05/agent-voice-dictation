@@ -38,6 +38,7 @@ export function App() {
   const [levels, setLevels] = useState<number[]>(EMPTY_LEVELS)
   const [error, setError] = useState<string | null>(null)
   const [handsFree, setHandsFree] = useState(false)
+  const [visible, setVisible] = useState(true)
   const recRef = useRef<MediaRecorder | null>(null)
   const stoppingRef = useRef(false)
   const streamSessionIdRef = useRef<string | null>(null)
@@ -258,6 +259,7 @@ export function App() {
   // can implement true press-and-hold.
   useEffect(() => {
     const off = window.flow.events.onHotkeyFired(() => {
+      setVisible(true)
       if (state === 'idle') {
         void startRecording()
       } else if (state === 'recording') {
@@ -266,6 +268,15 @@ export function App() {
     })
     return off
   }, [state, startRecording, stopRecording])
+
+  useEffect(() => {
+    const offOpening = window.flow.events.onStatusOpening(() => setVisible(true))
+    const offClosing = window.flow.events.onStatusClosing(() => setVisible(false))
+    return () => {
+      offOpening()
+      offClosing()
+    }
+  }, [])
 
   useEffect(() => {
     void window.flow.settings.get().then(settings => {
@@ -279,6 +290,7 @@ export function App() {
       levels={levels}
       error={error}
       handsFree={handsFree}
+      visible={visible}
       onStop={stopRecording}
       onCancel={cancelRecording}
     />

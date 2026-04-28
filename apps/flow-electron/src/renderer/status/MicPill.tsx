@@ -15,21 +15,21 @@ type Props = {
   levels: number[]
   error: string | null
   handsFree: boolean
+  visible: boolean
   onStop: () => void
   onCancel: () => void
 }
 
-export function MicPill({ state, levels, error, handsFree, onStop, onCancel }: Props) {
+export function MicPill({ state, levels, error, handsFree, visible, onStop, onCancel }: Props) {
   return (
     <div style={shellStyle}>
       <div
         style={{
           ...pillStyle,
           background: state === 'error' ? 'var(--danger)' : 'var(--surface)',
-          borderColor:
-            state === 'recording' ? 'var(--accent)' :
-            state === 'error' ? 'var(--danger)' :
-            'var(--border)',
+          borderColor: state === 'error' ? 'var(--danger)' : 'var(--border-soft)',
+          opacity: visible ? 1 : 0,
+          transform: visible ? 'translateY(0) scale(1)' : 'translateY(8px) scale(0.94)',
         }}
         title={error ?? undefined}
       >
@@ -166,9 +166,13 @@ const pillStyle: React.CSSProperties = {
   borderRadius: 999,
   border: '1px solid var(--border)',
   background: 'var(--surface)',
-  boxShadow: 'var(--shadow-modal)',
+  // Keep the indicator visually quiet. A large shadow reads like a dark arc
+  // around the waveform on transparent windows, especially over bright apps.
+  // The waveform itself is the state indicator; the pill chrome should recede.
+  boxShadow: 'none',
   minWidth: 130,
   height: 36,
+  transition: 'opacity 130ms ease, transform 150ms cubic-bezier(.2,.8,.2,1), border-color 120ms ease',
 }
 
 const waveStyle: React.CSSProperties = {

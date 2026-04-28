@@ -17,8 +17,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const PILL_WIDTH = 220
 const PILL_HEIGHT = 56
+const HIDE_ANIMATION_MS = 150
 
 let status: BrowserWindow | null = null
+let hideGeneration = 0
 
 export function getStatusWindow(): BrowserWindow | null {
   return status
@@ -32,7 +34,7 @@ function defaultPosition(): { x: number; y: number } {
   const { workArea } = display
   return {
     x: Math.round(workArea.x + (workArea.width - PILL_WIDTH) / 2),
-    y: Math.round(workArea.y + workArea.height - PILL_HEIGHT - 32),
+    y: Math.round(workArea.y + workArea.height - PILL_HEIGHT - 8),
   }
 }
 
@@ -105,11 +107,24 @@ export function showStatus(): void {
   status.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   status.moveTop()
   status.showInactive()
+  hideGeneration += 1
+  status.webContents.send('status:opening')
 }
 
 export function hideStatus(): void {
   if (!status || status.isDestroyed()) return
-  status.hide()
+  // BrowserWindow.hide() is instant, so the renderer never gets a chance to
+  // animate out. The status window is tiny and transparent, which makes an
+  // abrupt disappear feel cheap. We let the renderer shrink/fade the pill for
+  // one short frame window, then hide the native window. If another hotkey shows
+  // the pill during that delay, the visibility guard prevents the stale timer
+  // from hiding the new session.
+  const generation = hideGeneration
+  status.webContents.send('status:closing')
+  const target = status
+  setTimeout(() => {
+    if (hideGeneration === generation && status === target && !target.isDestroyed()) target.hide()
+  }, HIDE_ANIMATION_MS)
 }
 
 async function applyOverlayMode(): Promise<void> {

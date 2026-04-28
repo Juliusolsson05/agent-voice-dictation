@@ -54,6 +54,8 @@ export type FlowApi = {
   }
   events: {
     onHotkeyFired(handler: () => void): () => void
+    onStatusOpening(handler: () => void): () => void
+    onStatusClosing(handler: () => void): () => void
   }
 }
 
@@ -101,6 +103,16 @@ const api: FlowApi = {
       // Return an unsubscribe so consumers don't leak listeners on
       // tab change / unmount.
       return () => ipcRenderer.off('hotkey:fired', wrapped)
+    },
+    onStatusOpening(handler) {
+      const wrapped = () => handler()
+      ipcRenderer.on('status:opening', wrapped)
+      return () => ipcRenderer.off('status:opening', wrapped)
+    },
+    onStatusClosing(handler) {
+      const wrapped = () => handler()
+      ipcRenderer.on('status:closing', wrapped)
+      return () => ipcRenderer.off('status:closing', wrapped)
     },
   },
 }
