@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   bindingFromKeyboardEvent,
   cloneEmptyModifiers,
+  DEFAULT_HOTKEY_BINDING,
   formatBindingForDisplay,
   isModifierKey,
   modifierOnlyBinding,
@@ -183,7 +184,7 @@ export function HotkeyInput({ value, onChange, placeholder }: Props) {
           <button
             type="button"
             className="btn btn-ghost"
-            onClick={() => void onChange('Option+SPACE')}
+            onClick={() => void onChange(DEFAULT_HOTKEY_BINDING)}
             title="Restore default binding"
           >
             Default

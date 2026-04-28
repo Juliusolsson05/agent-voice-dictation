@@ -3,6 +3,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { isSpeechProviderSelectable } from 'agent-voice-dictation'
 
+import { DEFAULT_HOTKEY_BINDING } from '../../shared/hotkeyBinding.js'
+
 // Plain settings store. Lives next to secrets.json but UNencrypted on
 // purpose: this file holds non-sensitive preferences (selected provider
 // id, hotkey string, language). Mixing it with the encrypted secrets
@@ -52,8 +54,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // helper consumes. This is not an Electron accelerator on macOS:
   // Electron cannot represent Fn or modifier-only bindings, so using
   // Electron naming here would put the wrong abstraction in the
-  // settings file and make future migrations painful.
-  hotkey: 'Option+SPACE',
+  // settings file and make future migrations painful. Constant lives
+  // in shared/hotkeyBinding so the renderer's "Default" button can
+  // reference the same value without going through IPC.
+  hotkey: DEFAULT_HOTKEY_BINDING,
   microphoneDeviceId: null,
   language: 'en',
   autoPasteAtCursor: true,

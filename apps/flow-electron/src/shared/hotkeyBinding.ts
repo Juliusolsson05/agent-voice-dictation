@@ -6,6 +6,13 @@ export type HeldModifiers = {
   fn: boolean
 }
 
+// Single source of truth for the default dictation hotkey. Both the
+// settings store and the HotkeyInput "Default" button used to hardcode
+// 'Option+SPACE' independently — easy to silently drift if either
+// changed. Lives in the shared module so both main and renderer can
+// import it directly without going through IPC.
+export const DEFAULT_HOTKEY_BINDING = 'Option+SPACE'
+
 export type KeyboardEventLike = {
   key: string
   code: string
