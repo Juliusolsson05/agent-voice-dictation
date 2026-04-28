@@ -28,7 +28,7 @@ export type AppSettings = {
   // Dictation tab
   hotkey: string                 // Mac helper binding string; Electron accelerator only off macOS
   microphoneDeviceId: string | null
-  language: string | null        // BCP-47 like 'en' or null = auto
+  language: string               // V1 is intentionally English-only.
   autoPasteAtCursor: boolean
   playSounds: boolean
   handsFreeMode: boolean         // governs the Status pill UI
@@ -53,7 +53,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // settings file and make future migrations painful.
   hotkey: 'Option+SPACE',
   microphoneDeviceId: null,
-  language: null,
+  language: 'en',
   autoPasteAtCursor: true,
   playSounds: false,
   handsFreeMode: false,
@@ -73,10 +73,17 @@ function coerceSettings(value: unknown): AppSettings {
   // default. Older versions are upgraded by simply re-running this —
   // there is no migration ladder yet because we are still on v1.
   const partial = (value && typeof value === 'object' ? value : {}) as Partial<AppSettings>
-  return {
+  const coerced: AppSettings = {
     ...DEFAULT_SETTINGS,
     ...partial,
     v: 1,
+    // Force all existing settings files back to English. We previously allowed
+    // free-form BCP-47 codes, which let an old `sv` value reach AssemblyAI and
+    // fail Universal-3 Pro with "sv is not currently supported". V1 is an
+    // English dictation app until we deliberately add multilingual fallback
+    // routing, so the settings file must not be the source of truth for
+    // language selection.
+    language: 'en',
     statusWindowPosition:
       partial.statusWindowPosition && typeof partial.statusWindowPosition === 'object'
         ? {
@@ -85,6 +92,7 @@ function coerceSettings(value: unknown): AppSettings {
           }
         : null,
   }
+  return coerced
 }
 
 let cached: AppSettings | null = null

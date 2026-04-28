@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { BrowserWindow } from 'electron'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
@@ -43,13 +43,6 @@ export function createHubWindow(): BrowserWindow {
 
   hub.on('ready-to-show', () => {
     hub?.show()
-    // Auto-open DevTools in dev / preview so we can debug renderer
-    // behavior (click handlers, hotkey capture) without juggling the
-    // menubar shortcut. Gated so a packaged build won't ship with
-    // them open.
-    if (!app.isPackaged) {
-      hub?.webContents.openDevTools({ mode: 'detach' })
-    }
   })
 
   hub.on('closed', () => {

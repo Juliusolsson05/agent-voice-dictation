@@ -135,16 +135,6 @@ function DictationTab({
           placeholder="Click to set hotkey"
         />
       </Row>
-      <Row label="Language" hint="BCP-47 like en, sv, de. Empty = auto-detect.">
-        <input
-          className="input"
-          value={settings.language ?? ''}
-          onChange={e =>
-            void update({ language: e.target.value.trim() || null })
-          }
-          placeholder="auto"
-        />
-      </Row>
       <Toggle
         label="Auto-paste at cursor"
         hint="Paste the final text into the focused app on macOS."

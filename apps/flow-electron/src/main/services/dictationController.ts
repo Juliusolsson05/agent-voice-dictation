@@ -61,7 +61,7 @@ export async function transcribeForProvider(
   apiKey: string,
   audio: ArrayBuffer,
   mimeType: string | undefined,
-  language: string | null,
+  language: string,
 ): Promise<SpeechTranscript> {
   // Each provider has its own client because their request shapes
   // are not standardized. The `agent-voice-dictation` package
@@ -76,7 +76,7 @@ export async function transcribeForProvider(
       data: audio,
       ...(mimeType ? { mimeType } : {}),
     },
-    ...(language ? { language } : {}),
+    language,
   }
   switch (provider) {
     case 'assemblyai':
@@ -174,7 +174,7 @@ export async function runDictation(input: DictationInput): Promise<DictationOutc
     apiKey,
     input.audio,
     input.mimeType,
-    settings.language,
+    'en',
   )
   const sttDoneAt = Date.now()
 
