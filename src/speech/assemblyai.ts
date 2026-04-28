@@ -82,7 +82,13 @@ export async function transcribeAssemblyAi(
     },
     body: JSON.stringify({
       audio_url: uploadJson.upload_url,
-      speech_model: providerOptions.speechModels?.[0] ?? 'universal-3',
+      // AssemblyAI used to accept the singular `speech_model` field, and
+      // Electron builds can hide that mistake until the provider rejects a real
+      // dictation run with a 400. Their current pre-recorded API expects
+      // `speech_models` on every request, as a priority-ordered array, so keep
+      // the package boundary aligned with the provider contract instead of
+      // letting each host app remember this migration detail.
+      speech_models: nonEmptySpeechModels(providerOptions.speechModels),
       language_detection: providerOptions.languageDetection ?? !options.language,
       language_code: options.language,
       speaker_labels: providerOptions.speakerLabels ?? false,
@@ -128,6 +134,16 @@ export async function transcribeAssemblyAi(
     }
     if (result.status === 'completed') return normalizeAssemblyAi(result)
   }
+}
+
+function nonEmptySpeechModels(speechModels: string[] | undefined): string[] {
+  if (speechModels?.length) return speechModels
+
+  // Universal-3 Pro gives the best current AssemblyAI quality for the languages
+  // it supports, while Universal-2 is the broad fallback. We keep both in the
+  // default array so callers get provider-side routing without having to know
+  // the compatibility matrix.
+  return ['universal-3-pro', 'universal-2']
 }
 
 function normalizeAssemblyAi(result: AssemblyAiTranscriptResponse): SpeechTranscript {

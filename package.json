@@ -16,9 +16,13 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "test:stt:live": "node --import tsx --test src/speech/live-providers.test.ts"
   },
   "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.5.0"
   },
   "license": "MIT"
