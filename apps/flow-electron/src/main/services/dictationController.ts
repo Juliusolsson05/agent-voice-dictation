@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto'
 import {
   isSpeechProviderSelectable,
   polishTranscriptWithOpenRouter,
+  wrapWithSttTag,
   type SpeechTraceEvent,
 } from 'agent-voice-dictation'
 
@@ -45,7 +46,6 @@ export type DictationOutcome = {
 }
 
 const DEEPSEEK_POLISH_TEMPORARILY_DISABLED = true
-const STT_TAG_NOTE = 'Speech-to-text; may contain transcription mistakes.'
 
 // The streaming provider owns its own WebSocket/session lifecycle, but the
 // renderer only passes us an opaque session id after start. This tiny map is
@@ -377,13 +377,14 @@ async function finalizeDictationText({
 function formatComposerText(text: string, settings: AppSettings): string {
   if (!settings.insertSttTag) return text
 
-  // This tag is deliberately added at the final composer boundary, not inside
-  // provider clients or OpenRouter polish. The main user of this app is often
-  // an LLM chat/composer; the model reading the conversation has more context
-  // than our STT provider does. By marking the inserted text as speech-derived,
-  // we let that downstream model account for possible homophone/name/API
-  // mistakes instead of pretending the transcript is authoritative prose.
-  return `<stt note="${STT_TAG_NOTE}">\n${text}\n</stt>`
+  // The wrapper is applied at the final composer boundary — never inside
+  // provider clients or polish. The downstream LLM reading the message has
+  // more context than our STT does, so flagging the text as speech-derived
+  // lets it account for homophones, name spellings, and code-identifier
+  // errors. Formatter lives in the package (composer/sttTag) so cc-shell
+  // and any future host produce the same exact wrapper string — drift
+  // would defeat any downstream model scanning for the marker.
+  return wrapWithSttTag(text)
 }
 
 function logProviderTrace(runId: string, event: SpeechTraceEvent): void {
