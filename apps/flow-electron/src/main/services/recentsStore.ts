@@ -23,6 +23,7 @@ export type DictationRecord = {
   ts: number
   raw: string
   polished: string | null
+  finalText?: string | null
   provider: string
   model: string | null
   durationMs: number

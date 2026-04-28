@@ -149,6 +149,12 @@ function DictationTab({
         onChange={v => void update({ handsFreeMode: v })}
       />
       <Toggle
+        label="Insert STT tag"
+        hint="Wrap pasted text so LLMs know it came from speech-to-text."
+        value={settings.insertSttTag}
+        onChange={v => void update({ insertSttTag: v })}
+      />
+      <Toggle
         label="Play sounds"
         hint="Subtle start/stop sounds."
         value={settings.playSounds}

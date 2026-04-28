@@ -42,6 +42,7 @@ export type DictationOutcome = {
 }
 
 const DEEPSEEK_POLISH_TEMPORARILY_DISABLED = true
+const STT_TAG_NOTE = 'Speech-to-text; may contain transcription mistakes.'
 
 // The streaming provider owns its own WebSocket/session lifecycle, but the
 // renderer only passes us an opaque session id after start. This tiny map is
@@ -236,7 +237,7 @@ export async function runDictation(input: DictationInput): Promise<DictationOutc
     polishedChars: polish.polished?.length ?? 0,
   })
 
-  const finalText = polish.polished ?? transcript.text
+  const finalText = formatComposerText(polish.polished ?? transcript.text, settings)
 
   // Clipboard write happens BEFORE the optional paste keystroke so
   // that even if the keystroke fails (no accessibility permission,
@@ -256,6 +257,7 @@ export async function runDictation(input: DictationInput): Promise<DictationOutc
     ts: startedAt,
     raw: transcript.text,
     polished: polish.polished,
+    finalText,
     provider: provider.id,
     model: polish.model,
     durationMs: polishDoneAt - startedAt,
@@ -295,7 +297,7 @@ async function finalizeDictationText({
 }): Promise<DictationOutcome> {
   const polish = await maybePolish(raw, settings)
   const polishDoneAt = Date.now()
-  const finalText = polish.polished ?? raw
+  const finalText = formatComposerText(polish.polished ?? raw, settings)
 
   logDictationTrace('polish:done', {
     runId: id,
@@ -320,6 +322,7 @@ async function finalizeDictationText({
     ts: startedAt,
     raw,
     polished: polish.polished,
+    finalText,
     provider,
     model: polish.model ?? model,
     durationMs: pasteDoneAt - startedAt,
@@ -339,6 +342,18 @@ async function finalizeDictationText({
   })
 
   return { record, pasted }
+}
+
+function formatComposerText(text: string, settings: AppSettings): string {
+  if (!settings.insertSttTag) return text
+
+  // This tag is deliberately added at the final composer boundary, not inside
+  // provider clients or OpenRouter polish. The main user of this app is often
+  // an LLM chat/composer; the model reading the conversation has more context
+  // than our STT provider does. By marking the inserted text as speech-derived,
+  // we let that downstream model account for possible homophone/name/API
+  // mistakes instead of pretending the transcript is authoritative prose.
+  return `<stt note="${STT_TAG_NOTE}">\n${text}\n</stt>`
 }
 
 function logProviderTrace(runId: string, event: SpeechTraceEvent): void {

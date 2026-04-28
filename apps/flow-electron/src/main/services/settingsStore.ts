@@ -32,6 +32,7 @@ export type AppSettings = {
   autoPasteAtCursor: boolean
   playSounds: boolean
   handsFreeMode: boolean         // governs the Status pill UI
+  insertSttTag: boolean          // wraps pasted output for LLM-facing composers
 
   // Providers tab
   sttProvider: SttProviderId
@@ -57,6 +58,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoPasteAtCursor: true,
   playSounds: false,
   handsFreeMode: false,
+  insertSttTag: false,
   sttProvider: 'deepgram',
   polishEnabled: false,
   openrouterModel: 'deepseek/deepseek-v4-flash',

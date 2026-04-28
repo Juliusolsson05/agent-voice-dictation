@@ -113,7 +113,7 @@ function RecentRow({
   onChanged: () => Promise<void> | void
 }) {
   const [expanded, setExpanded] = useState(false)
-  const text = record.polished ?? record.raw
+  const text = record.finalText ?? record.polished ?? record.raw
   const preview = useMemo(() => {
     if (text.length <= 100) return text
     return text.slice(0, 100) + '…'
