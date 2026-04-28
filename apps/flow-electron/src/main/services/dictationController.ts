@@ -54,6 +54,8 @@ const SECRET_IDS: Record<SttProviderId, string> = {
   elevenlabs: 'stt.elevenlabs',
 }
 
+const DEEPSEEK_POLISH_TEMPORARILY_DISABLED = true
+
 export async function transcribeForProvider(
   provider: SttProviderId,
   apiKey: string,
@@ -94,6 +96,17 @@ async function maybePolish(
   raw: string,
   settings: AppSettings,
 ): Promise<{ polished: string | null; model: string | null }> {
+  if (DEEPSEEK_POLISH_TEMPORARILY_DISABLED) {
+    // This is an intentional diagnostic bypass, not a product decision. The
+    // dictation loop currently has two network phases: STT and OpenRouter
+    // cleanup. Disabling the cleanup even when an older settings file still has
+    // `polishEnabled: true` lets us measure whether the perceived slowness is
+    // DeepSeek/OpenRouter or AssemblyAI's batch upload/job/poll path.
+    // Re-enable by removing this guard once the latency source is clear.
+    void raw
+    void settings
+    return { polished: null, model: null }
+  }
   if (!settings.polishEnabled) return { polished: null, model: null }
   const apiKey = await getSecret('openrouter') ?? await getOpenRouterApiKeyFromEnv()
   if (!apiKey) {

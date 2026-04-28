@@ -45,7 +45,7 @@ test('AssemblyAI transcript creation uses current speech_models array field', as
   assert.equal(transcriptBodies.length, 1)
   assert.deepEqual(transcriptBodies[0], {
     audio_url: 'https://uploads.example/audio.webm',
-    speech_models: ['universal-2'],
+    speech_models: ['universal-3-pro'],
     language_detection: true,
     speaker_labels: false,
   })

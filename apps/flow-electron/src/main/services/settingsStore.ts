@@ -58,7 +58,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   playSounds: false,
   handsFreeMode: false,
   sttProvider: 'assemblyai',
-  polishEnabled: true,
+  polishEnabled: false,
   openrouterModel: 'deepseek/deepseek-v4-flash',
   statusWindowPosition: null,
 }

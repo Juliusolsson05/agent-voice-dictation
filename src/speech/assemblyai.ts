@@ -139,14 +139,13 @@ export async function transcribeAssemblyAi(
 function nonEmptySpeechModels(speechModels: string[] | undefined): string[] {
   if (speechModels?.length) return speechModels
 
-  // Default the package to the faster async model. Universal-3 Pro is the
-  // quality-first AssemblyAI model and is the right choice for offline notes,
-  // long recordings, or hard audio, but it made the Electron dictation loop feel
-  // painfully slow because our current UX is batch upload -> create job -> poll.
-  // Until the app moves to the streaming `u3-rt-pro` path, v1 should optimize
-  // for perceived latency. Callers can still opt into Pro with
-  // `speechModels: ['universal-3-pro', 'universal-2']` when quality matters more.
-  return ['universal-2']
+  // Keep the package on AssemblyAI's current Universal-3 pre-recorded path by
+  // default. If dictation still feels slow with DeepSeek polish disabled, that
+  // tells us the remaining latency is the batch STT architecture itself
+  // (upload -> job -> poll), not the LLM cleanup step. Universal-2 remains a
+  // caller-provided fallback/override, but it should not be the default while
+  // we are trying to isolate the real bottleneck.
+  return ['universal-3-pro']
 }
 
 function normalizeAssemblyAi(result: AssemblyAiTranscriptResponse): SpeechTranscript {
