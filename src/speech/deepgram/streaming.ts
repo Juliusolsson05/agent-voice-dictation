@@ -6,7 +6,22 @@ import type { SpeechTraceEvent } from '../types.js'
 export type DeepgramStreamingOptions = {
   baseUrl?: string
   model?: string
+  /** Milliseconds to wait between the user releasing the hotkey and us
+   *  sending CloseStream. The original 140ms here was a defensive buffer
+   *  for in-flight MediaRecorder chunks, but the renderer's onstop handler
+   *  already awaits its own pending IPC sends before calling main.stop(),
+   *  so by the time we get here the WebSocket buffer is fully populated.
+   *  Default is now 0 — every saved millisecond is a millisecond Flux has
+   *  to commit the final turn before our watchdog gives up. */
   closeGraceMs?: number
+  /** Milliseconds to wait after CloseStream for Deepgram to send EndOfTurn
+   *  before we force-close the socket and finalize with whatever interim
+   *  text we have. Flux finalizes on its own state-machine schedule, not
+   *  ours; for short turns the model often hasn't decided "done" by the
+   *  time the user releases. 1500ms covers typical Flux finalization
+   *  latency on short utterances and keeps the worst-case "transcribing…"
+   *  pill duration short enough that the user does not think we hung. */
+  endOfTurnWatchdogMs?: number
 }
 
 export type DeepgramStreamingStartInput = {
@@ -53,13 +68,15 @@ type DeepgramStreamingSession = {
 }
 
 const DEFAULT_DEEPGRAM_STREAM_MODEL = 'flux-general-en'
-const DEFAULT_CLOSE_GRACE_MS = 140
+const DEFAULT_CLOSE_GRACE_MS = 0
+const DEFAULT_END_OF_TURN_WATCHDOG_MS = 1500
 
 export function createDeepgramStreamingProvider(
   defaults: DeepgramStreamingOptions = {},
 ): DeepgramStreamingProvider {
   const model = defaults.model ?? DEFAULT_DEEPGRAM_STREAM_MODEL
   const closeGraceMs = defaults.closeGraceMs ?? DEFAULT_CLOSE_GRACE_MS
+  const endOfTurnWatchdogMs = defaults.endOfTurnWatchdogMs ?? DEFAULT_END_OF_TURN_WATCHDOG_MS
   const sessions = new Map<string, DeepgramStreamingSession>()
   const failedSessions = new Map<string, Error>()
 
@@ -228,9 +245,10 @@ export function createDeepgramStreamingProvider(
       audioBytes: session.audioBytes,
       ms: Date.now() - session.startedAt,
       closeGraceMs,
+      endOfTurnWatchdogMs,
     })
 
-    await sleep(closeGraceMs)
+    if (closeGraceMs > 0) await sleep(closeGraceMs)
 
     // CloseStream is Deepgram's protocol-level finalization for an active
     // stream — it tells the server "no more audio is coming, please emit
@@ -260,7 +278,37 @@ export function createDeepgramStreamingProvider(
       session.ws.once('open', finishWithProperClose)
     } else {
       finalizeSession(session)
+      return session.done
     }
+
+    // Watchdog. Flux's CloseStream contract says "the server will flush any
+    // remaining responses and then close" but the docs do not promise a
+    // bound on how long that takes, and traces show the server frequently
+    // closing the socket without ever sending an EndOfTurn for short turns.
+    // When that happens we fall back to the latest interim — which is the
+    // model's incomplete guess and almost always missing the last word.
+    //
+    // Two-pronged fix: handleDeepgramMessage finalises early on EndOfTurn
+    // (the fast path — usually fires within ~150ms of CloseStream), and
+    // this watchdog catches the case where Flux never commits within
+    // endOfTurnWatchdogMs. Force-closing triggers the close handler which
+    // calls finalizeSession; finalizeSession is idempotent so the early
+    // path beats it cleanly when both fire.
+    setTimeout(() => {
+      if (sessions.has(session.id) && session.ws.readyState === WebSocket.OPEN) {
+        trace(session, 'deepgram:end-of-turn:watchdog', {
+          runId: id,
+          watchdogMs: endOfTurnWatchdogMs,
+          finalChars: session.finalTexts.join(' ').trim().length,
+          interimChars: session.interimText.trim().length,
+        })
+        try {
+          session.ws.close()
+        } catch {
+          /* noop */
+        }
+      }
+    }, endOfTurnWatchdogMs)
 
     return session.done
   }
@@ -340,6 +388,31 @@ export function createDeepgramStreamingProvider(
         transcriptChars: transcript.length,
         elapsedMs: Date.now() - session.startedAt,
       })
+    }
+
+    // Early-finalize path. Once we have stopped sending audio AND Deepgram
+    // commits a turn, there is nothing more to wait for — finalize on the
+    // EndOfTurn instead of waiting for the socket close handshake. This is
+    // the difference between "transcribing…" hanging for the full watchdog
+    // window vs. resolving the moment the model is actually done.
+    //
+    // Without this path, the previous trace truncated the user's last word
+    // because we only had the latest interim when the socket closed; with
+    // it, we capture the committed final transcript as soon as it arrives
+    // and close the socket from our side. finalizeSession is idempotent
+    // (guards on sessions.has), so the eventual close-handler invocation
+    // is a no-op.
+    if (session.stopped && isFinal) {
+      trace(session, 'deepgram:end-of-turn:finalize', {
+        runId: session.id,
+        elapsedMs: Date.now() - session.startedAt,
+      })
+      finalizeSession(session)
+      try {
+        session.ws.close()
+      } catch {
+        /* noop */
+      }
     }
   }
 
