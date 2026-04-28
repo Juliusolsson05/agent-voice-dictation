@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parseDotEnv } from 'agent-voice-dictation'
 
 import type { SttProviderId } from '@main/services/settingsStore.js'
 
@@ -34,7 +35,10 @@ async function loadEnvFileOnce(): Promise<void> {
   for (const path of candidateEnvPaths()) {
     try {
       const raw = await readFile(path, 'utf8')
-      envFile = { ...parseEnv(raw), ...envFile }
+      // Earlier-loaded files take precedence — first hit wins per envFile
+      // ordering. We spread the new parse first so existing entries remain
+      // authoritative across both candidate paths (app root vs package root).
+      envFile = { ...parseDotEnv(raw), ...envFile }
       // eslint-disable-next-line no-console
       console.log(`[env] loaded fallback keys from ${path}`)
     } catch (err) {
@@ -58,20 +62,6 @@ function candidateEnvPaths(): string[] {
     join(appRoot, '.env'),
     join(packageRoot, '.env'),
   ]
-}
-
-function parseEnv(raw: string): Record<string, string> {
-  const result: Record<string, string> = {}
-  for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
-    const idx = trimmed.indexOf('=')
-    if (idx === -1) continue
-    const key = trimmed.slice(0, idx).trim()
-    const value = trimmed.slice(idx + 1).trim().replace(/^['"]|['"]$/g, '')
-    if (key) result[key] = value
-  }
-  return result
 }
 
 function firstConfigured(names: string[]): string | null {
