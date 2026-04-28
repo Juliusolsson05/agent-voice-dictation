@@ -72,16 +72,18 @@ export function MicPill({ state, level, error, handsFree, onStop, onCancel }: Pr
 }
 
 function Bars({ level, active }: { level: number; active: boolean }) {
-  // Keep the visualization tied to the actual meter value. The earlier version
-  // added a sine-wave shimmer and CSS transitions on top of the audio envelope;
-  // it looked alive, but it also made the pill feel delayed and sometimes
-  // disconnected from speech. These fixed weights give a voice-like shape
-  // without inventing motion the microphone did not report.
+  // Keep the pleasant sine-wave feel, but make the mic level the amplitude
+  // source. The earlier shimmer could move even when the meter was flat, which
+  // made it feel detached from speech. This version only lets the sine curve
+  // shape real energy that came from the microphone.
   const weights = [0.45, 0.75, 1, 0.7, 0.5]
+  const phases = [0, 0.17, 0.34, 0.51, 0.68]
+  const t = (Date.now() % 700) / 700
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 3, height: 18 }}>
       {weights.map((weight, i) => {
-        const responsive = active ? Math.max(level, 0.08) * weight : 0.04
+        const wave = active ? 0.7 + 0.3 * Math.abs(Math.sin((t + phases[i]) * Math.PI * 2)) : 1
+        const responsive = active ? Math.max(level, 0.08) * weight * wave : 0.04
         const h = Math.max(3, Math.round(responsive * 18))
         return (
           <span

@@ -43,9 +43,11 @@ const liveProviders: LiveProvider[] = [
   },
 ]
 
+const DEFAULT_AUDIO_FIXTURE = 'test/fixtures/audio/provider-smoke.wav'
+
 loadDotEnv()
 
-const audioPath = process.env.STT_TEST_AUDIO_FILE
+const audioPath = process.env.STT_TEST_AUDIO_FILE ?? DEFAULT_AUDIO_FIXTURE
 const configuredProviders = liveProviders
   .map(provider => ({ provider, apiKey: readFirstEnv(provider.envNames) }))
   .filter((entry): entry is { provider: LiveProvider; apiKey: string } => Boolean(entry.apiKey))
