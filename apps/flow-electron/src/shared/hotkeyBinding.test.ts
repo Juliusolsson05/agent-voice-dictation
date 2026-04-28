@@ -55,6 +55,20 @@ test('records punctuation using the native helper vocabulary', () => {
   assert.equal(result.binding, 'DOT')
 })
 
+// The bracket labels were previously swapped (left key labeled CLOSE, right
+// key labeled OPEN). Lock the corrected mapping so a future edit cannot
+// silently re-swap them — both halves of the round-trip would have to be
+// wrong in the same direction to mask it, exactly as before.
+test('records BracketLeft as BRACKET_LEFT (the [ key)', () => {
+  const result = bindingFromKeyboardEvent(event({ key: '[', code: 'BracketLeft' }), cloneEmptyModifiers())
+  assert.equal(result.binding, 'BRACKET_LEFT')
+})
+
+test('records BracketRight as BRACKET_RIGHT (the ] key)', () => {
+  const result = bindingFromKeyboardEvent(event({ key: ']', code: 'BracketRight' }), cloneEmptyModifiers())
+  assert.equal(result.binding, 'BRACKET_RIGHT')
+})
+
 test('records modifier plus destructive key without rejecting Backspace', () => {
   const held = cloneEmptyModifiers()
   updateHeldModifier(event({ key: 'Meta', code: 'MetaLeft', metaKey: true }), held, true)

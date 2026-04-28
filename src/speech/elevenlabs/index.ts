@@ -25,7 +25,7 @@ export async function transcribeElevenLabs(
 ): Promise<SpeechTranscript> {
   assertApiKey('elevenlabs', options.apiKey)
   const form = new FormData()
-  form.set('file', formFile(options.audio, 'audio.webm'), fileName(options.audio, 'audio.webm'))
+  form.set('file', formFile(options.audio), fileName(options.audio, 'audio.webm'))
   form.set('model_id', providerOptions.modelId ?? 'scribe_v1')
   form.set('tag_audio_events', String(providerOptions.tagAudioEvents ?? true))
   form.set('diarize', String(providerOptions.diarize ?? false))

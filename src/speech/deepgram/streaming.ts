@@ -232,15 +232,32 @@ export function createDeepgramStreamingProvider(
 
     await sleep(closeGraceMs)
 
-    if (session.ws.readyState === WebSocket.OPEN) {
-      // Deepgram uses a protocol-level finalization message. A plain socket
-      // close can discard the last phrase if the user releases the key while
-      // Deepgram is still deciding the final turn.
-      session.ws.send(JSON.stringify({ type: 'CloseStream' }))
-    } else if (session.ws.readyState === WebSocket.CONNECTING) {
-      session.ws.once('open', () => {
+    // CloseStream is Deepgram's protocol-level finalization for an active
+    // stream — it tells the server "no more audio is coming, please emit
+    // your final EndOfTurn so we don't lose the trailing phrase". When the
+    // session has no audio at all, sending CloseStream as the first message
+    // makes Deepgram's parser try to interpret the JSON text as raw audio
+    // bytes and fail with UNPARSABLE_CLIENT_MESSAGE. A plain socket close
+    // is the correct end-of-stream signal for an empty session: the server
+    // tears down quietly and our finalizeSession resolves with empty text,
+    // which the controller then surfaces as the normal "no speech detected"
+    // path instead of a confusing provider error in the user's terminal.
+    const finishWithProperClose = () => {
+      if (session.wsSentChunks > 0) {
         session.ws.send(JSON.stringify({ type: 'CloseStream' }))
-      })
+      } else {
+        try {
+          session.ws.close()
+        } catch {
+          /* noop */
+        }
+      }
+    }
+
+    if (session.ws.readyState === WebSocket.OPEN) {
+      finishWithProperClose()
+    } else if (session.ws.readyState === WebSocket.CONNECTING) {
+      session.ws.once('open', finishWithProperClose)
     } else {
       finalizeSession(session)
     }
@@ -249,6 +266,12 @@ export function createDeepgramStreamingProvider(
   }
 
   function cancel(id: string): void {
+    // Cancel must drop both maps. failedSessions only gets cleared by stop()
+    // reading the entry, but if the renderer cancels (X button, hotkey held
+    // <180ms, audible-error reset) we never call stop, so any stored failure
+    // would leak forever. Cancel is the user saying "I do not care about the
+    // outcome" — drop the bookkeeping with the audio.
+    failedSessions.delete(id)
     const session = sessions.get(id)
     if (!session) return
     sessions.delete(id)

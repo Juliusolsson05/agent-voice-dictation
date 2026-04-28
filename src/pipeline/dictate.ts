@@ -9,6 +9,7 @@ export async function dictate(options: DictationPipelineOptions): Promise<Dictat
     audio: options.audio,
     language: options.language,
     signal: options.signal,
+    onTrace: options.onTrace,
   })
   const sttMs = Date.now() - sttStarted
 

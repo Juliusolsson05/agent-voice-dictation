@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { MicPill } from './MicPill'
+import { playCloseSound, playOpenSound } from './sounds'
 
 // The Status window's job:
 //   1. Listen for `hotkey:fired` from main.
@@ -62,6 +63,12 @@ export function App() {
   const rafRef = useRef<number | null>(null)
   const levelRefs = useRef<number[]>([...EMPTY_LEVELS])
   const noiseFloorRef = useRef<number[]>(VOICE_BANDS_HZ.map(() => 0.08))
+  // Mirror of settings.playSounds so stopRecording (synchronous) can decide
+  // whether to play the close cue without re-loading settings every release.
+  // startRecording refreshes this on every press from the fresh settings
+  // load, which keeps the value in sync with anything the user just toggled
+  // in Settings without us having to subscribe to a settings:changed event.
+  const soundsEnabledRef = useRef(false)
 
   const stopMeter = useCallback(() => {
     if (rafRef.current !== null) {
@@ -184,9 +191,11 @@ export function App() {
       })
       const settings = await window.flow.settings.get()
       setHandsFree(settings.handsFreeMode)
+      soundsEnabledRef.current = settings.playSounds
       console.log('[status:trace] settings:loaded', {
         ms: Date.now() - startRequestedAt,
         handsFreeMode: settings.handsFreeMode,
+        playSounds: settings.playSounds,
       })
       const gumStartedAt = Date.now()
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -257,6 +266,17 @@ export function App() {
         showTransientError(evt.error?.message ?? 'Recorder failed', evt.error)
       })
       rec.addEventListener('stop', async () => {
+        // Snapshot real audio duration BEFORE we tear anything down. This is
+        // the recorder's MediaRecorder.start → onstop interval, accurate to
+        // within ~30ms of encoder flush. The streaming provider in main can
+        // only see session wall-clock time, which includes mic warm-up and
+        // the WebSocket handshake, so it would under-report WPM by ~600ms+
+        // every session. recordingStartedAtRef may be 0 if the recorder
+        // never actually started (race with cancel) — guard against that.
+        const audioDurationMs = recordingStartedAtRef.current > 0
+          ? Date.now() - recordingStartedAtRef.current
+          : undefined
+
         // The mic stream must be torn down BEFORE we await the
         // network request so the OS shows "mic released" promptly.
         streamRef.current?.getTracks().forEach(t => t.stop())
@@ -270,6 +290,29 @@ export function App() {
           void window.flow.status.hide()
           return
         }
+        // Defense in depth for the misclick case. The discard branch above
+        // catches short hotkey holds, but mic warm-up can eat 100ms+ of a
+        // hold that looks fine in heldMs (the original check), so the actual
+        // recorded audio comes back at ~80–90ms even though the user held
+        // the key for 200ms. Deepgram has nothing useful to transcribe under
+        // ~150ms, and historically this path also tripped UNPARSABLE_CLIENT_MESSAGE
+        // on the provider side when CloseStream landed before any audio.
+        // Cancel the streaming session and bail without going through stop.
+        if (
+          audioDurationMs !== undefined
+          && audioDurationMs < MIN_HOLD_TO_TRANSCRIBE_MS
+        ) {
+          console.log('[status:trace] recorder:stop:short-audio-discard', {
+            audioDurationMs,
+            thresholdMs: MIN_HOLD_TO_TRANSCRIBE_MS,
+          })
+          const sessionId = streamSessionIdRef.current
+          streamSessionIdRef.current = null
+          if (sessionId) void window.flow.dictation.streamCancel(sessionId)
+          resetToIdle()
+          void window.flow.status.hide()
+          return
+        }
         lifecycleRef.current = 'transcribing'
         setState('transcribing')
         try {
@@ -279,8 +322,22 @@ export function App() {
           if (!sessionId) throw new Error('No active Deepgram stream')
           await Promise.allSettled(pendingChunkSendsRef.current)
           pendingChunkSendsRef.current = []
-          await window.flow.dictation.streamStop(sessionId)
+          const outcome = await window.flow.dictation.streamStop(sessionId, audioDurationMs)
+          if (outcome.kind === 'no-speech') {
+            // Normal outcome — user pressed and didn't speak (or audio was
+            // too short for the model to commit). The visual pill already
+            // showed up with the level meter, so silently dismissing IS the
+            // feedback: "nothing to transcribe, moving on". Don't show the
+            // red error pill — that misrepresents a benign outcome as a
+            // failure and trains the user to ignore real errors.
+            console.log('[status:trace] dictation:no-speech')
+            resetToIdle()
+            await window.flow.status.hide()
+            return
+          }
         } catch (err) {
+          // Reaches here only for genuine bugs: provider crashed, IPC
+          // crashed, undefined ref. Those DO deserve the red pill.
           const message = (err as Error)?.message ?? String(err)
           showTransientError(message, err)
           return
@@ -339,6 +396,10 @@ export function App() {
       lifecycleRef.current = 'recording'
       setState('recording')
       setError(null)
+      // Open chirp fires the moment we commit to recording — paired with
+      // the visual pill appearing. Audio + visual landing together is the
+      // honest "I am listening now" cue.
+      if (soundsEnabledRef.current) playOpenSound()
       startMeter(stream)
       if (pendingStopRef.current) {
         pendingStopRef.current = false
@@ -381,6 +442,13 @@ export function App() {
         streamSessionIdRef.current = null
         if (sessionId) void window.flow.dictation.streamCancel(sessionId)
       }
+      // Close chirp fires only when this is a real release (not a discarded
+      // misclick). We check discardStopRef AFTER the short-press branch above
+      // sets it, so the short-press path stays silent. The chirp lands on
+      // hotkey release — what the user feels as the "end" — not later when
+      // transcription completes; the close cue is about the gesture, not
+      // the model's response.
+      if (!discardStopRef.current && soundsEnabledRef.current) playCloseSound()
       // `MediaRecorder.stop()` should emit a final dataavailable event, but an
       // abrupt hotkey release can still race the encoder and our IPC close path.
       // Requesting data first gives Chromium one explicit chance to flush the

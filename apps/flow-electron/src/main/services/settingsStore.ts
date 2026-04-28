@@ -3,6 +3,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { isSpeechProviderSelectable } from 'agent-voice-dictation'
 
+import { DEFAULT_HOTKEY_BINDING } from '../../shared/hotkeyBinding.js'
+
 // Plain settings store. Lives next to secrets.json but UNencrypted on
 // purpose: this file holds non-sensitive preferences (selected provider
 // id, hotkey string, language). Mixing it with the encrypted secrets
@@ -52,12 +54,18 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // helper consumes. This is not an Electron accelerator on macOS:
   // Electron cannot represent Fn or modifier-only bindings, so using
   // Electron naming here would put the wrong abstraction in the
-  // settings file and make future migrations painful.
-  hotkey: 'Option+SPACE',
+  // settings file and make future migrations painful. Constant lives
+  // in shared/hotkeyBinding so the renderer's "Default" button can
+  // reference the same value without going through IPC.
+  hotkey: DEFAULT_HOTKEY_BINDING,
   microphoneDeviceId: null,
   language: 'en',
   autoPasteAtCursor: true,
-  playSounds: false,
+  // Default ON because the open/close chirps are part of the dictation UX,
+  // not a power-user opt-in: a press without an audible confirmation feels
+  // like the app missed the hotkey, even when the pill appears. The
+  // Settings toggle still exists for users who specifically want silence.
+  playSounds: true,
   handsFreeMode: false,
   insertSttTag: false,
   sttProvider: 'deepgram',
@@ -80,6 +88,7 @@ function coerceSettings(value: unknown): AppSettings {
     ...DEFAULT_SETTINGS,
     ...partial,
     v: 1,
+    hotkey: migrateLegacyHotkey(partial.hotkey ?? DEFAULT_SETTINGS.hotkey),
     // Provider selection is gated by the package-level support registry, not
     // by whether a client file happens to exist. We have unverified clients in
     // the repo for future work, but old settings files must not keep selecting
@@ -108,6 +117,19 @@ function isSupportedSttProvider(value: unknown): value is SttProviderId {
   return typeof value === 'string'
     && ['assemblyai', 'deepgram', 'openai', 'gladia', 'elevenlabs'].includes(value)
     && isSpeechProviderSelectable(value as SttProviderId)
+}
+
+// One-shot migration for the bracket-key rename. Earlier builds stored
+// "SQUARE BRACKET OPEN" / "SQUARE BRACKET CLOSE" in the hotkey string,
+// and the names were swapped relative to the actual key the user chose:
+// the macOS keycode 0x1E (`]`, kVK_ANSI_RightBracket) was labeled OPEN,
+// and 0x21 (`[`, kVK_ANSI_LeftBracket) was labeled CLOSE. Rewrite so the
+// stored value matches the new physical-position vocabulary; the helper
+// no longer accepts the old names.
+function migrateLegacyHotkey(value: string): string {
+  return value
+    .replace(/\bSQUARE BRACKET OPEN\b/g, 'BRACKET_RIGHT')
+    .replace(/\bSQUARE BRACKET CLOSE\b/g, 'BRACKET_LEFT')
 }
 
 let cached: AppSettings | null = null

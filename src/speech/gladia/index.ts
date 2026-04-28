@@ -32,7 +32,7 @@ export async function transcribeGladia(
   // the AssemblyAI client: package callers pass bytes, not a public
   // URL they had to host somewhere else.
   const uploadForm = new FormData()
-  uploadForm.set('audio', formFile(options.audio, 'audio.webm'), fileName(options.audio, 'audio.webm'))
+  uploadForm.set('audio', formFile(options.audio), fileName(options.audio, 'audio.webm'))
   const upload = await fetch(`${baseUrl}/upload`, {
     method: 'POST',
     headers,

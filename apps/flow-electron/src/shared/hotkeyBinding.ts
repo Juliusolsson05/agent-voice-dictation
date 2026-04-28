@@ -6,6 +6,13 @@ export type HeldModifiers = {
   fn: boolean
 }
 
+// Single source of truth for the default dictation hotkey. Both the
+// settings store and the HotkeyInput "Default" button used to hardcode
+// 'Option+SPACE' independently — easy to silently drift if either
+// changed. Lives in the shared module so both main and renderer can
+// import it directly without going through IPC.
+export const DEFAULT_HOTKEY_BINDING = 'Option+SPACE'
+
 export type KeyboardEventLike = {
   key: string
   code: string
@@ -54,8 +61,14 @@ const NAMED_KEYS: Record<string, string> = {
   PageDown: 'PAGE DOWN',
   Equal: 'EQUALS',
   Minus: 'MINUS',
-  BracketLeft: 'SQUARE BRACKET CLOSE',
-  BracketRight: 'SQUARE BRACKET OPEN',
+  // Names follow the physical-position convention used by macOS keycodes:
+  // BRACKET_LEFT is the `[` key (kVK_ANSI_LeftBracket = 0x21), BRACKET_RIGHT
+  // is `]` (kVK_ANSI_RightBracket = 0x1E). The earlier OPEN/CLOSE labels
+  // were swapped in both this file and main.swift; the round-trip happened
+  // to work because both halves were wrong in the same direction, but
+  // anyone reading either file alone would have been misled.
+  BracketLeft: 'BRACKET_LEFT',
+  BracketRight: 'BRACKET_RIGHT',
   Semicolon: 'SEMICOLON',
   Quote: 'QUOTE',
   Backslash: 'BACKSLASH',

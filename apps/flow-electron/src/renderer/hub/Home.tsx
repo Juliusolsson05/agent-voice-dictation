@@ -1,4 +1,11 @@
 import { useCallback, useMemo, useState } from 'react'
+// Subpath import on purpose. The root `agent-voice-dictation` re-exports the
+// Deepgram streaming module, which imports `node:crypto` at the top of the
+// file. Vite happily resolves that for the main process (it's Node) but
+// chokes when it tries to bundle the renderer because `node:crypto` is not
+// available in the browser. The composer subpath only exposes the pure
+// wrap/strip helpers, so the renderer pulls just what it actually uses.
+import { stripSttTag, wrapWithSttTag } from 'agent-voice-dictation/composer'
 
 import type { AppSettings, DictationRecord } from '../../preload/index'
 import { formatBindingForDisplay } from '../../shared/hotkeyBinding'
@@ -9,8 +16,6 @@ type Props = {
   onChanged: () => Promise<void> | void
   onOpenSettings: () => void
 }
-
-const STT_TAG_NOTE = 'Speech-to-text; may contain transcription mistakes.'
 
 // Home is the default page. It tells the user how to dictate, what
 // provider they're on, and shows the local recents list. Nothing else.
@@ -178,7 +183,7 @@ function RecentRow({
   }, [text])
 
   const copy = useCallback(async () => {
-    await navigator.clipboard.writeText(insertSttTag ? formatSttTag(text) : text)
+    await navigator.clipboard.writeText(insertSttTag ? wrapWithSttTag(text) : text)
   }, [insertSttTag, text])
 
   const remove = useCallback(async () => {
@@ -286,18 +291,9 @@ function displayTranscriptText(record: DictationRecord): string {
   // The history is a transcript history, not a composer-output history. Older
   // builds briefly persisted `finalText`, which could include the STT wrapper.
   // Strip that legacy wrapper for display/stats, and only re-add it when the
-  // user explicitly copies from history with the setting enabled.
+  // user explicitly copies from history with the setting enabled. Wrapper
+  // grammar lives in the package so we cannot drift from what main writes.
   return stripSttTag(record.polished ?? record.raw)
-}
-
-function formatSttTag(text: string): string {
-  return `<stt note="${STT_TAG_NOTE}">\n${text}\n</stt>`
-}
-
-function stripSttTag(text: string): string {
-  return text
-    .replace(/^<stt\b[^>]*>\s*/i, '')
-    .replace(/\s*<\/stt>\s*$/i, '')
 }
 
 function countWords(text: string): number {

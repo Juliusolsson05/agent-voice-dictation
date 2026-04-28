@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto'
 import {
   isSpeechProviderSelectable,
   polishTranscriptWithOpenRouter,
+  wrapWithSttTag,
   type SpeechTraceEvent,
 } from 'agent-voice-dictation'
 
@@ -39,13 +40,20 @@ export type DictationInput = {
   mimeType?: string
 }
 
-export type DictationOutcome = {
-  record: DictationRecord
-  pasted: boolean
-}
+// Discriminated union — every dictation call returns one of these shapes,
+// and exceptions are reserved for genuine bugs (undefined refs, broken
+// network, malformed provider response). The previous design threw
+// `Error('No speech detected')` for an empty transcript; that is a normal
+// outcome of "user pressed the hotkey and didn't speak", not a fault, and
+// throwing for it produced an Electron "Error occurred in handler" stack
+// trace in the terminal on every misfire. The renderer can now branch on
+// `kind` and pick the right UX (silent reset for no-speech, real error
+// pill for the rare unexpected throw that gets through).
+export type DictationOutcome =
+  | { kind: 'success'; record: DictationRecord; pasted: boolean }
+  | { kind: 'no-speech' }
 
 const DEEPSEEK_POLISH_TEMPORARILY_DISABLED = true
-const STT_TAG_NOTE = 'Speech-to-text; may contain transcription mistakes.'
 
 // The streaming provider owns its own WebSocket/session lifecycle, but the
 // renderer only passes us an opaque session id after start. This tiny map is
@@ -89,7 +97,10 @@ export function pushStreamingDictationChunk(id: string, chunk: ArrayBuffer): voi
   provider.streaming?.pushChunk(id, chunk)
 }
 
-export async function stopStreamingDictation(id: string): Promise<DictationOutcome> {
+export async function stopStreamingDictation(
+  id: string,
+  rendererAudioDurationMs?: number,
+): Promise<DictationOutcome> {
   const settings = await loadSettings()
   const provider = getActiveStreamingProvider(id)
   if (!provider) throw new Error(`No active streaming dictation session "${id}"`)
@@ -100,6 +111,18 @@ export async function stopStreamingDictation(id: string): Promise<DictationOutco
     activeStreamingProviders.delete(id)
   }
   if (!transcript) throw new Error(`Provider "${provider.id}" does not support streaming dictation`)
+  // Prefer the renderer-measured audio duration when present. The streaming
+  // provider can only see session wall-clock time (socket open → close),
+  // which includes mic warm-up, the WebSocket handshake, and Deepgram's
+  // finalization grace — typically 600ms+ of overhead on top of real audio.
+  // The renderer knows when MediaRecorder.start fired and when its onstop
+  // event resolved, which is the actual audio length to within ~30ms of
+  // encoder flush. WPM is derived from this number, so the difference
+  // between the two measurements is the difference between an honest
+  // dashboard and one that systematically under-reports speaking rate.
+  const audioDurationMs = typeof rendererAudioDurationMs === 'number' && rendererAudioDurationMs > 0
+    ? rendererAudioDurationMs
+    : transcript.audioDurationMs
   return finalizeDictationText({
     id: transcript.id,
     startedAt: transcript.startedAt,
@@ -107,7 +130,7 @@ export async function stopStreamingDictation(id: string): Promise<DictationOutco
     provider: transcript.provider,
     model: transcript.model,
     sttDoneAt: transcript.sttDoneAt,
-    audioDurationMs: transcript.audioDurationMs,
+    audioDurationMs,
     settings,
   })
 }
@@ -233,7 +256,16 @@ export async function runDictation(input: DictationInput): Promise<DictationOutc
     audioDurationMs: transcript.durationMs ?? null,
   })
   if (!transcript.text.trim()) {
-    throw new Error('No speech detected')
+    // Normal outcome, not a bug. The user pressed the hotkey but the
+    // provider returned no usable text — could be silence, mic muted, or
+    // audio too short for the model to commit. Surface as a structured
+    // result so the renderer can hide the pill quietly without an error
+    // flash and the terminal stays clean.
+    logDictationTrace('done:no-speech', {
+      runId,
+      sttMs: sttDoneAt - startedAt,
+    })
+    return { kind: 'no-speech' }
   }
 
   const polish = await maybePolish(transcript.text, settings)
@@ -292,7 +324,7 @@ export async function runDictation(input: DictationInput): Promise<DictationOutc
     finalChars: finalText.length,
   })
 
-  return { record, pasted }
+  return { kind: 'success', record, pasted }
 }
 
 async function finalizeDictationText({
@@ -315,7 +347,13 @@ async function finalizeDictationText({
   settings: AppSettings
 }): Promise<DictationOutcome> {
   if (!raw.trim()) {
-    throw new Error('No speech detected')
+    // See the runDictation note above — empty transcript is normal,
+    // surface it as a structured outcome instead of throwing.
+    logDictationTrace('done:no-speech', {
+      runId: id,
+      sttMs: sttDoneAt - startedAt,
+    })
+    return { kind: 'no-speech' }
   }
 
   const polish = await maybePolish(raw, settings)
@@ -371,19 +409,20 @@ async function finalizeDictationText({
     finalChars: finalText.length,
   })
 
-  return { record, pasted }
+  return { kind: 'success', record, pasted }
 }
 
 function formatComposerText(text: string, settings: AppSettings): string {
   if (!settings.insertSttTag) return text
 
-  // This tag is deliberately added at the final composer boundary, not inside
-  // provider clients or OpenRouter polish. The main user of this app is often
-  // an LLM chat/composer; the model reading the conversation has more context
-  // than our STT provider does. By marking the inserted text as speech-derived,
-  // we let that downstream model account for possible homophone/name/API
-  // mistakes instead of pretending the transcript is authoritative prose.
-  return `<stt note="${STT_TAG_NOTE}">\n${text}\n</stt>`
+  // The wrapper is applied at the final composer boundary — never inside
+  // provider clients or polish. The downstream LLM reading the message has
+  // more context than our STT does, so flagging the text as speech-derived
+  // lets it account for homophones, name spellings, and code-identifier
+  // errors. Formatter lives in the package (composer/sttTag) so cc-shell
+  // and any future host produce the same exact wrapper string — drift
+  // would defeat any downstream model scanning for the marker.
+  return wrapWithSttTag(text)
 }
 
 function logProviderTrace(runId: string, event: SpeechTraceEvent): void {

@@ -7,6 +7,7 @@ import { transcribeDeepgram } from './deepgram/index.js'
 import { transcribeElevenLabs } from './elevenlabs/index.js'
 import { transcribeGladia } from './gladia/index.js'
 import { transcribeOpenAi } from './openai/index.js'
+import { parseDotEnv } from '../env/dotenv.js'
 import type { AudioInput, SpeechProviderId, SpeechTranscript } from './types.js'
 
 type LiveProvider = {
@@ -124,21 +125,16 @@ function readFirstEnv(names: string[]): string | undefined {
 }
 
 function loadDotEnv(): void {
+  // Tests should work from the package root and from app subdirectories. The
+  // shared parser lives in src/env/dotenv so the Electron host's envKeys
+  // module can use the exact same shape — both consumers read .env, both
+  // accept the same `KEY=value` grammar, and we only get one place to fix
+  // edge cases like trailing whitespace or quote handling.
   for (const filePath of [resolve('.env'), resolve('../.env')]) {
     if (!existsSync(filePath)) continue
-
-    // Tests should work from the package root and from app subdirectories. This
-    // tiny parser is enough for our checked-in key convention and avoids adding
-    // dotenv as another runtime dependency for a package whose provider clients
-    // otherwise have no Node-only dependencies.
-    for (const line of readFileSync(filePath, 'utf8').split(/\r?\n/)) {
-      const trimmed = line.trim()
-      if (!trimmed || trimmed.startsWith('#')) continue
-      const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(trimmed)
-      if (!match) continue
-
-      const [, key, rawValue] = match
-      process.env[key] ??= rawValue.replace(/^['"]|['"]$/g, '')
+    const parsed = parseDotEnv(readFileSync(filePath, 'utf8'))
+    for (const [key, value] of Object.entries(parsed)) {
+      process.env[key] ??= value
     }
   }
 }

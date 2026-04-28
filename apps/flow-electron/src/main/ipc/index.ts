@@ -8,7 +8,6 @@ import {
   type AppSettings,
 } from '@main/services/settingsStore.js'
 import {
-  getSecret,
   setSecret,
   clearSecret,
   listConfiguredSecretIds,
@@ -26,7 +25,7 @@ import {
   stopStreamingDictation,
 } from '@main/services/dictationController.js'
 import { registerConfiguredHotkey } from '@main/services/hotkey.js'
-import { getStatusWindow, showStatus, hideStatus } from '@main/windows/status.js'
+import { showStatus, hideStatus } from '@main/windows/status.js'
 
 // One central place to wire IPC. We deliberately keep handlers
 // thin — each one delegates into a service module so the IPC layer
@@ -76,11 +75,16 @@ export function registerIpc(): void {
   ipcMain.handle('secrets:list', async () => listConfiguredSecretIds())
   // Convenience: return only whether a specific id is configured.
   // The renderer Settings UI uses this to show "configured" vs
-  // "missing" badges next to each provider input.
+  // "missing" badges next to each provider input. We deliberately do
+  // NOT call getSecret here: presence is a directory question, not a
+  // value question, and the Settings modal opens with N consecutive
+  // calls (one per provider). Decrypting just to coerce to a boolean
+  // would mean N safeStorage roundtrips and N plaintext copies in
+  // memory for no reason. The encrypted blob's existence is the answer.
   ipcMain.handle('secrets:has', async (_e, params: { id: string }) => {
     if (!params?.id) return false
-    const value = await getSecret(params.id)
-    return Boolean(value)
+    const ids = await listConfiguredSecretIds()
+    return ids.includes(params.id)
   })
 
   // ---- Provider support ----
@@ -143,14 +147,15 @@ export function registerIpc(): void {
   )
   ipcMain.handle(
     'dictation:stream-stop',
-    async (_e, params: { id: string }) => {
+    async (_e, params: { id: string; audioDurationMs?: number }) => {
       if (!params?.id) throw new Error('dictation:stream-stop requires id')
       // eslint-disable-next-line no-console
       console.log('[dictation:ipc] stream-stop:request', {
         id: params.id,
+        audioDurationMs: params.audioDurationMs ?? null,
         at: Date.now(),
       })
-      return stopStreamingDictation(params.id)
+      return stopStreamingDictation(params.id, params.audioDurationMs)
     },
   )
   ipcMain.handle(
@@ -181,11 +186,14 @@ export function registerIpc(): void {
 // Helper used by the global hotkey handler in main/index.ts to push
 // the "user pressed the dictation key" event into whichever window
 // is listening (Status pill primarily, Hub for in-app indicators).
+//
+// We rely on BrowserWindow.getAllWindows() including hidden windows,
+// which is how the Status pill receives `hotkey:down` even before its
+// first show — `webContents.send` is delivery-once-loaded, and the
+// preload bridge has already attached the `ipcRenderer.on` listener
+// by the time the window is constructed.
 export function broadcastDictationEvent(channel: string, payload?: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send(channel, payload)
   }
-  // Status window is hidden by default; broadcasting still reaches it
-  // because BrowserWindow.getAllWindows includes hidden windows.
-  void getStatusWindow
 }

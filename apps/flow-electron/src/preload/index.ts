@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 import type { AppSettings, SttProviderId } from '@main/services/settingsStore.js'
 import type { DictationRecord } from '@main/services/recentsStore.js'
+import type { DictationOutcome } from '@main/services/dictationController.js'
 import type { SpeechProviderSupportMap } from 'agent-voice-dictation'
 
 // Preload bridge.
@@ -36,16 +37,14 @@ export type FlowApi = {
     clear(): Promise<void>
   }
   dictation: {
-    run(audio: ArrayBuffer, mimeType?: string): Promise<{
-      record: DictationRecord
-      pasted: boolean
-    }>
+    // run/streamStop return a discriminated union: 'success' carries the
+    // record, 'no-speech' is a structured outcome the renderer should
+    // surface as a silent reset (no error pill, no terminal stack trace).
+    // True bugs still throw and reject the promise.
+    run(audio: ArrayBuffer, mimeType?: string): Promise<DictationOutcome>
     streamStart(mimeType?: string): Promise<{ id: string }>
     streamChunk(id: string, chunk: ArrayBuffer): Promise<{ ok: true }>
-    streamStop(id: string): Promise<{
-      record: DictationRecord
-      pasted: boolean
-    }>
+    streamStop(id: string, audioDurationMs?: number): Promise<DictationOutcome>
     streamCancel(id: string): Promise<void>
   }
   status: {
@@ -92,8 +91,8 @@ const api: FlowApi = {
       ipcRenderer.invoke('dictation:stream-start', { mimeType }),
     streamChunk: (id, chunk) =>
       ipcRenderer.invoke('dictation:stream-chunk', { id, chunk }),
-    streamStop: id =>
-      ipcRenderer.invoke('dictation:stream-stop', { id }),
+    streamStop: (id, audioDurationMs) =>
+      ipcRenderer.invoke('dictation:stream-stop', { id, audioDurationMs }),
     streamCancel: id =>
       ipcRenderer.invoke('dictation:stream-cancel', { id }),
   },
@@ -140,4 +139,10 @@ contextBridge.exposeInMainWorld('flow', api)
 
 // Re-export types so the renderer can `import type` from the
 // preload module and stay in sync.
-export type { AppSettings, SttProviderId, DictationRecord, SpeechProviderSupportMap }
+export type {
+  AppSettings,
+  SttProviderId,
+  DictationRecord,
+  DictationOutcome,
+  SpeechProviderSupportMap,
+}
