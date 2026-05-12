@@ -419,7 +419,7 @@ function formatComposerText(text: string, settings: AppSettings): string {
   // provider clients or polish. The downstream LLM reading the message has
   // more context than our STT does, so flagging the text as speech-derived
   // lets it account for homophones, name spellings, and code-identifier
-  // errors. Formatter lives in the package (composer/sttTag) so cc-shell
+  // errors. Formatter lives in the package (composer/sttTag) so Agent Code
   // and any future host produce the same exact wrapper string — drift
   // would defeat any downstream model scanning for the marker.
   return wrapWithSttTag(text)

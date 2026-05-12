@@ -32,7 +32,7 @@ test('Deepgram streaming combines distinct turns when neither contains the other
   // Multi-turn Flux scenario: the user spoke turn A, paused so Flux emitted
   // EndOfTurn for it, then started turn B. At stop time `finalText` is from
   // turn A and `interimText` is from turn B; before this fix the longer one
-  // won and the other was silently lost. Specifically the case from the cc-shell
+  // won and the other was silently lost. Specifically the case from the Agent Code
   // trace: final = "...I want to do is to add so that" (53 chars), interim =
   // "You know, in the settings in the last application," (50 chars). Old code
   // returned final alone and the user saw their entire latest sentence
@@ -60,7 +60,7 @@ test('Deepgram streaming returns final alone when interim is already covered by 
 })
 
 test('Deepgram streaming emits cumulative interim text across multiple turns', async () => {
-  // Reproduces the cc-shell "previous sentence vanishes mid-recording" report.
+  // Reproduces the Agent Code "previous sentence vanishes mid-recording" report.
   // Flux's per-event `transcript` field is the CURRENT turn only — see
   // https://developers.deepgram.com/docs/flux/state — so when a turn closes
   // and the next turn's first Update lands, naive forwarding would replace

@@ -15,7 +15,7 @@
 // providers must never see it (it would just become more text to transcribe
 // the next time it round-trips through dictation). Hosts opt in per-paste.
 //
-// Lives in the package so every consumer (the desktop app today, cc-shell
+// Lives in the package so every consumer (the desktop app today, Agent Code
 // tomorrow, anything else later) uses the same exact wrapper string.
 // Drift between hosts would defeat the point — a downstream LLM scanning for
 // the marker has to see the same shape every time.

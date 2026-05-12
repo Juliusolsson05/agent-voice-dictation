@@ -30,7 +30,7 @@ export function createHubWindow(): BrowserWindow {
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#0e0f12',
     webPreferences: {
-      // Same preload pattern cc-shell uses: a runtime-relative path
+      // Same preload pattern Agent Code uses: a runtime-relative path
       // because vite path aliases don't intercept Node's join() at
       // runtime. The compiled preload sits at out/preload/index.mjs
       // relative to out/main/index.js.
