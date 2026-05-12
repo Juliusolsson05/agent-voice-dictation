@@ -15,7 +15,7 @@ export type DictationPipelineOptions = {
     appReferer?: string
   }
   signal?: AbortSignal
-  /** Forwarded to the speech provider so package consumers (cc-shell)
+  /** Forwarded to the speech provider so package consumers (Agent Code)
    *  can observe per-phase latency without subscribing to the provider
    *  directly. We intentionally do NOT add a separate pipeline-level
    *  trace channel: the existing SpeechTraceEvent shape carries the

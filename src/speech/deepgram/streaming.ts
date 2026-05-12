@@ -98,7 +98,7 @@ export function createDeepgramStreamingProvider(
     const url = new URL(defaults.baseUrl ?? 'wss://api.deepgram.com/v2/listen')
     url.searchParams.set('model', model)
     // Deepgram streaming is package-owned because it is provider protocol, not
-    // app behavior. The desktop app and cc-shell both need the same guarantees:
+    // app behavior. The desktop app and Agent Code both need the same guarantees:
     // queue chunks until the socket opens, send Deepgram's CloseStream control
     // message instead of closing the socket directly, and keep the last interim
     // text as a fallback when the provider does not emit a final turn. If this

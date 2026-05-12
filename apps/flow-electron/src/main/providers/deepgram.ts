@@ -24,7 +24,7 @@ export const deepgramProvider: SpeechProviderRuntime = {
   streaming: {
     // The Electron app deliberately does not own Deepgram's WebSocket protocol.
     // It only adapts app-level concerns (secret ids, recents, paste behavior)
-    // onto the package-owned streaming provider. cc-shell can now consume the
+    // onto the package-owned streaming provider. Agent Code can now consume the
     // same implementation without importing anything from this desktop app.
     start(input) {
       return deepgramStreaming.start({
