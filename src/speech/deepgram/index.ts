@@ -10,6 +10,16 @@ export type DeepgramOptions = {
   smartFormat?: boolean
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function firstRecord(value: unknown): Record<string, unknown> | null {
+  return Array.isArray(value) ? asRecord(value[0]) : null
+}
+
 export function createDeepgramProvider(defaults: DeepgramOptions = {}): SpeechProvider {
   return {
     id: 'deepgram',
@@ -45,19 +55,20 @@ export async function transcribeDeepgram(
       details: await readErrorBody(response),
     })
   }
-  const raw = await response.json() as Record<string, unknown>
-  const channel = (((raw.results as Record<string, unknown> | undefined)?.channels as unknown[])?.[0]
-    ?? {}) as Record<string, unknown>
-  const alternative = ((channel.alternatives as unknown[])?.[0] ?? {}) as Record<string, unknown>
+  const raw = asRecord(await response.json()) ?? {}
+  const results = asRecord(raw.results)
+  const channel = firstRecord(results?.channels) ?? {}
+  const alternative = firstRecord(channel.alternatives) ?? {}
   return {
     provider: 'deepgram',
     text: String(alternative.transcript ?? ''),
-    language: ((raw.results as Record<string, unknown> | undefined)?.detected_language as string | undefined)
-      ?? options.language,
-    durationMs: numberSecondsToMs((raw.metadata as Record<string, unknown> | undefined)?.duration),
+    language: typeof results?.detected_language === 'string'
+      ? results.detected_language
+      : options.language,
+    durationMs: numberSecondsToMs(asRecord(raw.metadata)?.duration),
     words: Array.isArray(alternative.words)
       ? alternative.words.map(word => {
-          const w = word as Record<string, unknown>
+          const w = asRecord(word) ?? {}
           return {
             text: String(w.word ?? w.punctuated_word ?? ''),
             startMs: numberSecondsToMs(w.start),

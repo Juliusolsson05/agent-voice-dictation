@@ -13,7 +13,7 @@ export function audioToBlob(audio: AudioInput): Blob {
   })
 }
 
-export function audioToBody(audio: AudioInput): BodyInit {
+export function audioToBody(audio: AudioInput): Blob {
   return audioToBlob(audio)
 }
 
