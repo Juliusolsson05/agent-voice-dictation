@@ -32,7 +32,11 @@ export const deepgramProvider: SpeechProviderRuntime = {
         ...(input.mimeType ? { mimeType: input.mimeType } : {}),
         onTrace: event => input.onTrace({
           phase: event.phase,
-          details: event as unknown as Record<string, unknown>,
+          // SpeechTraceEvent deliberately carries provider-specific fields behind
+          // an index signature. Copying the event into the app-level details bag
+          // preserves that diagnostic payload without pretending this adapter
+          // knows Deepgram's transport-specific shape.
+          details: { ...event },
         }),
       })
     },
