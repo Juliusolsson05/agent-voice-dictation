@@ -1,4 +1,5 @@
 import ApplicationServices
+import AppKit
 import CoreGraphics
 import Foundation
 
@@ -15,7 +16,8 @@ import Foundation
 // tiny JSON lines on stdout so the Electron app owns product state while
 // this process owns only native keyboard observation.
 
-let binding = CommandLine.arguments.dropFirst().joined(separator: " ")
+let binding = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : ""
+let yieldConfigJson = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "{}"
 let modifierNames: Set<String> = ["Cmd", "Ctrl", "Option", "Shift", "Fn"]
 let parts = binding
   .split(separator: "+")
@@ -62,6 +64,24 @@ var previousModifierMatch = false
 var previousKeyMatch = false
 var eventTap: CFMachPort?
 
+struct YieldConfig: Decodable {
+  let frontmostBundleIds: [String]?
+  let frontmostAppNames: [String]?
+}
+
+// The helper receives generic pass-through targets from Electron rather than
+// importing app-specific knowledge. That separation is important because this
+// process runs below the product layer: its only job is to observe the native
+// keyboard stream and decide whether Flow should consume or pass through the
+// matching event. "Agent Code" is a registry entry in Electron, not a concept
+// baked into this Swift helper.
+let yieldConfig = (try? JSONDecoder().decode(
+  YieldConfig.self,
+  from: Data(yieldConfigJson.utf8)
+)) ?? YieldConfig(frontmostBundleIds: [], frontmostAppNames: [])
+let yieldBundleIds = Set(yieldConfig.frontmostBundleIds ?? [])
+let yieldAppNames = Set(yieldConfig.frontmostAppNames ?? [])
+
 func activeModifiers(_ flags: CGEventFlags) -> Set<String> {
   var result = Set<String>()
   if flags.contains(.maskCommand) { result.insert("Cmd") }
@@ -70,6 +90,23 @@ func activeModifiers(_ flags: CGEventFlags) -> Set<String> {
   if flags.contains(.maskShift) { result.insert("Shift") }
   if flags.contains(.maskSecondaryFn) { result.insert("Fn") }
   return result
+}
+
+func shouldYieldToFrontmostApp() -> Bool {
+  // We check frontmost app at the exact moment the hotkey matches. Polling or
+  // caching this in Electron would race focus changes between applications,
+  // and deciding after emit("hotkey-down") would be too late because returning
+  // nil from the event tap is what prevents the focused app from seeing the
+  // original press. Returning the original event here gives Agent Code (or any
+  // future integration target) first chance to handle its own shortcut.
+  guard let app = NSWorkspace.shared.frontmostApplication else { return false }
+  if let bundleId = app.bundleIdentifier, yieldBundleIds.contains(bundleId) {
+    return true
+  }
+  if let name = app.localizedName, yieldAppNames.contains(name) {
+    return true
+  }
+  return false
 }
 
 func emit(_ type: String, _ extra: String = "") {
@@ -114,6 +151,7 @@ let callback: CGEventTapCallBack = { _, type, event, _ in
   }
 
   if type == .keyDown && keyMatches(event) && !previousKeyMatch {
+    if shouldYieldToFrontmostApp() { return Unmanaged.passUnretained(event) }
     previousKeyMatch = true
     emit("hotkey-down")
     return nil
@@ -131,6 +169,7 @@ let callback: CGEventTapCallBack = { _, type, event, _ in
   if type == .flagsChanged {
     let isMatch = modifierMatches(event)
     if isMatch && !previousModifierMatch {
+      if shouldYieldToFrontmostApp() { return Unmanaged.passUnretained(event) }
       previousModifierMatch = true
       emit("hotkey-down")
       return nil

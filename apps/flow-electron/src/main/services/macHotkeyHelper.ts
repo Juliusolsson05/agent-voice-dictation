@@ -10,6 +10,10 @@ let child: ChildProcessWithoutNullStreams | null = null
 export async function startMacHotkeyHelper(
   binding: string,
   handlers: { onPress: () => void; onRelease?: () => void },
+  yieldTargets: {
+    frontmostBundleIds: string[]
+    frontmostAppNames: string[]
+  } = { frontmostBundleIds: [], frontmostAppNames: [] },
 ): Promise<boolean> {
   stopMacHotkeyHelper()
 
@@ -17,7 +21,7 @@ export async function startMacHotkeyHelper(
 
   try {
     const binary = await ensureHelperBinary()
-    child = spawn(binary, [binding], {
+    child = spawn(binary, [binding, JSON.stringify(yieldTargets)], {
       stdio: ['ignore', 'pipe', 'pipe'],
     })
 

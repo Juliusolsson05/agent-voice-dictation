@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { AppSettings, SttProviderId } from '@main/services/settingsStore.js'
 import type { DictationRecord } from '@main/services/recentsStore.js'
 import type { DictationOutcome } from '@main/services/dictationController.js'
+import type { DictationIntegrationSummary } from '@main/integrations/registry.js'
 import type { SpeechProviderSupportMap } from 'agent-voice-dictation'
 
 // Preload bridge.
@@ -30,6 +31,9 @@ export type FlowApi = {
   }
   providers: {
     support(): Promise<SpeechProviderSupportMap>
+  }
+  integrations: {
+    list(): Promise<DictationIntegrationSummary[]>
   }
   recents: {
     list(): Promise<DictationRecord[]>
@@ -78,6 +82,9 @@ const api: FlowApi = {
   },
   providers: {
     support: () => ipcRenderer.invoke('providers:support'),
+  },
+  integrations: {
+    list: () => ipcRenderer.invoke('integrations:list'),
   },
   recents: {
     list: () => ipcRenderer.invoke('recents:list'),
@@ -144,5 +151,6 @@ export type {
   SttProviderId,
   DictationRecord,
   DictationOutcome,
+  DictationIntegrationSummary,
   SpeechProviderSupportMap,
 }

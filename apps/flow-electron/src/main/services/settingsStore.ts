@@ -36,6 +36,7 @@ export type AppSettings = {
   playSounds: boolean
   handsFreeMode: boolean         // governs the Status pill UI
   insertSttTag: boolean          // wraps pasted output for LLM-facing composers
+  integrationHotkeyYield: Record<string, boolean>
 
   // Providers tab
   sttProvider: SttProviderId
@@ -68,6 +69,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   playSounds: true,
   handsFreeMode: false,
   insertSttTag: false,
+  integrationHotkeyYield: {},
   sttProvider: 'deepgram',
   polishEnabled: false,
   openrouterModel: 'deepseek/deepseek-v4-flash',
@@ -102,6 +104,13 @@ function coerceSettings(value: unknown): AppSettings {
     // routing, so the settings file must not be the source of truth for
     // language selection.
     language: 'en',
+    integrationHotkeyYield:
+      partial.integrationHotkeyYield && typeof partial.integrationHotkeyYield === 'object'
+        ? Object.fromEntries(
+            Object.entries(partial.integrationHotkeyYield)
+              .filter(([key, value]) => key.trim() && typeof value === 'boolean'),
+          )
+        : {},
     statusWindowPosition:
       partial.statusWindowPosition && typeof partial.statusWindowPosition === 'object'
         ? {
