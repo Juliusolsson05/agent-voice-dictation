@@ -1,5 +1,6 @@
 import { agentCodeIntegration } from '@main/integrations/agentCode.js'
 import { loadSettings } from '@main/services/settingsStore.js'
+import { enabledDictationIntegrationsForSettings } from '@main/integrations/selection.js'
 import type { DictationIntegration } from '@main/integrations/types.js'
 
 const integrations: DictationIntegration[] = [
@@ -26,8 +27,5 @@ export function listDictationIntegrationSummaries(): DictationIntegrationSummary
 
 export async function enabledDictationIntegrations(): Promise<DictationIntegration[]> {
   const settings = await loadSettings()
-  return integrations.filter(integration => {
-    const override = settings.integrationHotkeyYield[integration.id]
-    return override ?? integration.enabledByDefault
-  })
+  return enabledDictationIntegrationsForSettings(integrations, settings)
 }

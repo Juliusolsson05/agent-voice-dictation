@@ -5,13 +5,12 @@ export const agentCodeIntegration: DictationIntegration = {
   label: 'Agent Code',
   enabledByDefault: true,
   hotkeyYield: {
-    // Electron development builds report the bundle id below. Packaged builds
-    // may eventually use a product-specific id; the app-name fallback keeps
-    // the integration working while packaging metadata settles. This is the
-    // only Agent Code-specific file in the Flow app on purpose: normal Flow
-    // users should not pay for Agent Code concepts leaking through the core
-    // hotkey or dictation controller modules.
-    frontmostBundleIds: ['com.electron.agent-code'],
+    // Electron dev/preview and packaged Agent Code report different bundle
+    // ids. Keep both here instead of leaning on the app-name fallback: bundle
+    // ids are the stable routing contract the native event tap sees before
+    // Electron receives the hotkey, while display names can drift with
+    // packaging, localization, or a user-renamed .app bundle.
+    frontmostBundleIds: ['com.electron.agent-code', 'com.agentcode.app'],
     frontmostAppNames: ['Agent Code'],
   },
 }

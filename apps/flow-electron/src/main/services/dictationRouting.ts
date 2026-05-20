@@ -1,9 +1,8 @@
 import { enabledDictationIntegrations } from '@main/integrations/registry.js'
-
-export type HotkeyYieldTargets = {
-  frontmostBundleIds: string[]
-  frontmostAppNames: string[]
-}
+import {
+  hotkeyYieldTargetsForIntegrations,
+  type HotkeyYieldTargets,
+} from '@main/integrations/selection.js'
 
 export async function getHotkeyYieldTargets(): Promise<HotkeyYieldTargets> {
   // WHY this module flattens integrations into plain strings:
@@ -13,16 +12,5 @@ export async function getHotkeyYieldTargets(): Promise<HotkeyYieldTargets> {
   // pile of one-off host-app checks. The registry owns integration identity;
   // the hotkey layer receives a dumb routing table.
   const integrations = await enabledDictationIntegrations()
-  return {
-    frontmostBundleIds: unique(
-      integrations.flatMap(integration => integration.hotkeyYield.frontmostBundleIds),
-    ),
-    frontmostAppNames: unique(
-      integrations.flatMap(integration => integration.hotkeyYield.frontmostAppNames),
-    ),
-  }
-}
-
-function unique(values: string[]): string[] {
-  return [...new Set(values.map(value => value.trim()).filter(Boolean))]
+  return hotkeyYieldTargetsForIntegrations(integrations)
 }
