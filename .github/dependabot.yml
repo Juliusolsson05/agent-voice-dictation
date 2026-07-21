@@ -1,0 +1,46 @@
+# Both lockfiles are release inputs owned by this repository. Keeping them in one
+# update block lets Dependabot coordinate shared dependency updates rather than
+# opening competing pull requests for the root package and Electron application.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directories:
+      - "/"
+      - "/apps/flow-electron"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "07:00"
+      timezone: "Europe/Stockholm"
+    open-pull-requests-limit: 3
+    groups:
+      security-updates:
+        applies-to: "security-updates"
+        patterns:
+          - "*"
+      minor-and-patch:
+        applies-to: "version-updates"
+        group-by: "dependency-name"
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      # Routine majors remain manual, but this does not block security updates.
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "07:30"
+      timezone: "Europe/Stockholm"
+    open-pull-requests-limit: 3
+    groups:
+      github-actions:
+        patterns:
+          - "*"
