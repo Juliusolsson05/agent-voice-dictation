@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { AppSettings, SpeechProviderSupportMap, SttProviderId } from '../../preload/index'
+import type {
+  AppSettings,
+  DictationIntegrationSummary,
+  SpeechProviderSupportMap,
+  SttProviderId,
+} from '../../preload/index'
 import { HotkeyInput } from './HotkeyInput'
 
 type Props = {
@@ -9,7 +14,7 @@ type Props = {
   onChanged: () => Promise<void> | void
 }
 
-type Tab = 'dictation' | 'providers' | 'about'
+type Tab = 'dictation' | 'providers' | 'integrations' | 'about'
 
 const PROVIDERS: { id: SttProviderId; label: string; secretId: string }[] = [
   { id: 'assemblyai', label: 'AssemblyAI', secretId: 'stt.assemblyai' },
@@ -71,12 +76,14 @@ export function SettingsModal({ settings, onClose, onChanged }: Props) {
           <nav style={tabsStyle}>
             <TabButton active={tab === 'dictation'} onClick={() => setTab('dictation')}>Dictation</TabButton>
             <TabButton active={tab === 'providers'} onClick={() => setTab('providers')}>Providers</TabButton>
+            <TabButton active={tab === 'integrations'} onClick={() => setTab('integrations')}>Integrations</TabButton>
             <TabButton active={tab === 'about'} onClick={() => setTab('about')}>About</TabButton>
           </nav>
 
           <div style={paneStyle}>
             {tab === 'dictation' && <DictationTab settings={settings} update={update} />}
             {tab === 'providers' && <ProvidersTab settings={settings} update={update} />}
+            {tab === 'integrations' && <IntegrationsTab settings={settings} update={update} />}
             {tab === 'about' && <AboutTab onChanged={onChanged} />}
           </div>
         </div>
@@ -175,6 +182,56 @@ function DictationTab({
         value={settings.playSounds}
         onChange={v => void update({ playSounds: v })}
       />
+    </Section>
+  )
+}
+
+// ---------- Integrations tab ----------
+
+function IntegrationsTab({
+  settings,
+  update,
+}: {
+  settings: AppSettings
+  update: (patch: Partial<AppSettings>) => Promise<void>
+}) {
+  const [integrations, setIntegrations] = useState<DictationIntegrationSummary[]>([])
+
+  useEffect(() => {
+    let alive = true
+    void window.flow.integrations.list().then(next => {
+      if (alive) setIntegrations(next)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  return (
+    <Section title="Hotkey routing">
+      {integrations.map(integration => {
+        const enabled =
+          settings.integrationHotkeyYield[integration.id] ?? integration.enabledByDefault
+        return (
+          <Toggle
+            key={integration.id}
+            label={`Yield to ${integration.label}`}
+            hint="When this app is focused, Flow lets it handle the dictation hotkey instead of showing the floating pill."
+            value={enabled}
+            onChange={value => void update({
+              integrationHotkeyYield: {
+                ...settings.integrationHotkeyYield,
+                [integration.id]: value,
+              },
+            })}
+          />
+        )
+      })}
+      {integrations.length === 0 && (
+        <Row label="No integrations">
+          <span style={{ color: 'var(--ink-mute)', fontSize: 12 }}>No hotkey routing integrations are available.</span>
+        </Row>
+      )}
     </Section>
   )
 }

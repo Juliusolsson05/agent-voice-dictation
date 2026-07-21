@@ -26,6 +26,7 @@ import {
 } from '@main/services/dictationController.js'
 import { registerConfiguredHotkey } from '@main/services/hotkey.js'
 import { showStatus, hideStatus } from '@main/windows/status.js'
+import { listDictationIntegrationSummaries } from '@main/integrations/registry.js'
 
 // One central place to wire IPC. We deliberately keep handlers
 // thin — each one delegates into a service module so the IPC layer
@@ -42,7 +43,7 @@ export function registerIpc(): void {
   ipcMain.handle('settings:get', () => loadSettings())
   ipcMain.handle('settings:set', async (_e, patch: Partial<AppSettings>) => {
     let next = await saveSettings(patch)
-    if (typeof patch.hotkey === 'string') {
+    if (typeof patch.hotkey === 'string' || patch.integrationHotkeyYield) {
       await registerConfiguredHotkey()
       // registerConfiguredHotkey may repair a malformed accelerator
       // back to the default. Return the repaired settings immediately
@@ -93,6 +94,9 @@ export function registerIpc(): void {
   // which clients have been live-key validated; main exposes it read-only so
   // renderer UI can disable unverified providers without duplicating policy.
   ipcMain.handle('providers:support', () => STT_PROVIDER_SUPPORT)
+
+  // ---- Integrations ----
+  ipcMain.handle('integrations:list', () => listDictationIntegrationSummaries())
 
   // ---- Recents ----
   ipcMain.handle('recents:list', () => listRecents())

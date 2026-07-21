@@ -3,6 +3,7 @@ import { globalShortcut } from 'electron'
 import { toElectronAccelerator } from '../../shared/hotkeyBinding.js'
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from '@main/services/settingsStore.js'
 import { startMacHotkeyHelper, stopMacHotkeyHelper } from '@main/services/macHotkeyHelper.js'
+import { getHotkeyYieldTargets } from '@main/services/dictationRouting.js'
 
 let onHotkeyFire: (() => void) | null = null
 let onHotkeyRelease: (() => void) | null = null
@@ -41,10 +42,17 @@ export async function registerConfiguredHotkey(): Promise<{
     // not Electron's accelerator parser. That is the only path that can
     // represent Fn, bare modifiers, punctuation, and physical-key
     // bindings without silently rewriting what the user chose.
+    //
+    // Yield targets are passed into the helper rather than checked in this
+    // process after the callback fires. That ordering is load-bearing: the
+    // helper consumes matching events by returning nil from the event tap. To
+    // let Agent Code handle its own composer dictation, the helper must decide
+    // pass-through before it swallows the original key event.
+    const yieldTargets = await getHotkeyYieldTargets()
     const ok = await startMacHotkeyHelper(requested, {
       onPress: onHotkeyFire,
       onRelease: onHotkeyRelease ?? undefined,
-    })
+    }, yieldTargets)
     return { accelerator: requested, ok, fallbackUsed: false }
   }
 
