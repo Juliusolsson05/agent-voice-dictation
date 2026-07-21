@@ -99,6 +99,15 @@ func shouldYieldToFrontmostApp() -> Bool {
   // nil from the event tap is what prevents the focused app from seeing the
   // original press. Returning the original event here gives Agent Code (or any
   // future integration target) first chance to handle its own shortcut.
+  //
+  // Cost note: this runs INSIDE the CGEvent tap callback, which the system will
+  // disable outright if a callback is slow -- that is what the
+  // .tapDisabledByTimeout branch below re-enables. NSWorkspace's frontmost-app
+  // property is a cached local lookup rather than a cross-process query, and it
+  // only runs on the two hotkey-down edges (never per keystroke), so the tap
+  // budget is not at risk in practice. It is unmeasured, though: if yield ever
+  // correlates with the tap going dead, measure HERE first before assuming the
+  // re-enable path is at fault.
   guard let app = NSWorkspace.shared.frontmostApplication else { return false }
   if let bundleId = app.bundleIdentifier, yieldBundleIds.contains(bundleId) {
     return true
