@@ -92,3 +92,40 @@ describe('microphone ownership', () => {
     await expect(capture.open(null)).rejects.toThrow('Denied')
   })
 })
+
+describe('automatic iPhone selection', () => {
+  const automatic = 'agent-voice:auto-iphone'
+  const input = (id: string, label: string) => ({ deviceId: id, label, kind: 'audioinput' }) as MediaDeviceInfo
+
+  it('resolves the current phone id again after wireless reconnection', async () => {
+    const getUserMedia = vi.fn().mockResolvedValue(stream().value)
+    const enumerateDevices = vi.fn()
+      .mockResolvedValueOnce([input('mac', 'MacBook Microphone'), input('old', 'Julius’s iPhone Microphone')])
+      .mockResolvedValueOnce([input('new', 'Julius’s iPhone Microphone')])
+    await openMicrophone({ getUserMedia, enumerateDevices }, automatic)
+    expect(getUserMedia).toHaveBeenLastCalledWith({ audio: { deviceId: { exact: 'old' } }, video: false })
+    await openMicrophone({ getUserMedia, enumerateDevices }, automatic)
+    expect(getUserMedia).toHaveBeenLastCalledWith({ audio: { deviceId: { exact: 'new' } }, video: false })
+  })
+
+  it('never opens a different mic when the phone is missing, unnamed or ambiguous', async () => {
+    const getUserMedia = vi.fn()
+    for (const list of [[], [input('mac', 'MacBook Microphone')], [input('hidden', '')],
+      [input('one', 'iPhone Microphone'), input('two', 'Continuity Microphone')]]) {
+      await expect(openMicrophone({ getUserMedia, enumerateDevices: async () => list }, automatic)).rejects.toThrow()
+    }
+    expect(getUserMedia).not.toHaveBeenCalled()
+  })
+
+  it('releases a late phone stream after cancellation during discovery', async () => {
+    let discover!: (value: MediaDeviceInfo[]) => void
+    const audio = stream()
+    const capture = new MicrophoneCapture({ getUserMedia: async () => audio.value,
+      enumerateDevices: () => new Promise(resolve => { discover = resolve }) })
+    const request = capture.open(automatic)
+    capture.stop()
+    discover([input('phone', 'iPhone')])
+    expect(await request).toBeNull()
+    expect(audio.stop).toHaveBeenCalledOnce()
+  })
+})
