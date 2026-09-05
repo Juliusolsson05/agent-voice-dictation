@@ -38,6 +38,7 @@ type Props = {
 
 export function HotkeyInput({ value, onChange, placeholder }: Props) {
   const [capturing, setCapturing] = useState(false)
+  const [armed, setArmed] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const heldModifiersRef = useRef<HeldModifiers>(cloneEmptyModifiers())
@@ -61,6 +62,16 @@ export function HotkeyInput({ value, onChange, placeholder }: Props) {
 
   useEffect(() => {
     if (!capturing) return
+    let disposed = false
+    let ready = false
+    setArmed(false)
+    // The native tap otherwise swallows an already-bound key before Chromium
+    // can capture its replacement. Wait for suspension before accepting input.
+    void window.flow.hotkeys.capture(true).then(() => {
+      if (!disposed) { ready = true; setArmed(true) }
+    }).catch(() => {
+      if (!disposed) { setError('Could not pause shortcuts. Try again.'); setCapturing(false) }
+    })
     // eslint-disable-next-line no-console
     console.log('[HotkeyInput] listener attached')
     const clearModifierCommitTimer = () => {
@@ -69,11 +80,20 @@ export function HotkeyInput({ value, onChange, placeholder }: Props) {
         modifierCommitTimerRef.current = null
       }
     }
+    const commitBinding = async (binding: string) => {
+      try {
+        await onChange(binding)
+        if (!disposed) setCapturing(false)
+      } catch {
+        if (!disposed) setError('Could not save the shortcut. Try again or press Escape.')
+      }
+    }
     const onKey = (e: KeyboardEvent) => {
       // Always intercept while in capture mode; otherwise the user's
       // chord might trigger a real shortcut in the app.
       e.preventDefault()
       e.stopPropagation()
+      if (!ready) return
       // eslint-disable-next-line no-console
       console.log('[HotkeyInput] keydown', {
         key: e.key,
@@ -97,7 +117,7 @@ export function HotkeyInput({ value, onChange, placeholder }: Props) {
         clearModifierCommitTimer()
         if (modifierOnly) {
           modifierCommitTimerRef.current = window.setTimeout(() => {
-            void Promise.resolve(onChange(modifierOnly)).then(() => setCapturing(false))
+            void commitBinding(modifierOnly)
           }, 450)
         }
         return
@@ -111,13 +131,14 @@ export function HotkeyInput({ value, onChange, placeholder }: Props) {
       console.log('[HotkeyInput] accelerator', accel, nextError)
       setError(nextError)
       if (!accel) return
-      void Promise.resolve(onChange(accel)).then(() => setCapturing(false))
+      void commitBinding(accel)
     }
     const onKeyUp = (e: KeyboardEvent) => {
       updateHeldModifier(e, heldModifiersRef.current, false)
       if (!modifierOnlyBinding(heldModifiersRef.current)) clearModifierCommitTimer()
     }
     const onBlur = () => {
+      setCapturing(false)
       heldModifiersRef.current = cloneEmptyModifiers()
       clearModifierCommitTimer()
     }
@@ -126,6 +147,8 @@ export function HotkeyInput({ value, onChange, placeholder }: Props) {
     window.addEventListener('keyup', onKeyUp, true)
     window.addEventListener('blur', onBlur)
     return () => {
+      disposed = true
+      void window.flow.hotkeys.capture(false).catch(() => {})
       // eslint-disable-next-line no-console
       console.log('[HotkeyInput] listener detached')
       window.removeEventListener('keydown', onKey, true)
@@ -177,7 +200,7 @@ export function HotkeyInput({ value, onChange, placeholder }: Props) {
           aria-pressed={capturing}
         >
           {capturing
-            ? 'Press any key or shortcut'
+            ? armed ? 'Press any key or shortcut' : 'Preparing shortcut capture…'
             : display || placeholder || 'Click to set hotkey'}
         </button>
         {value && !capturing && (

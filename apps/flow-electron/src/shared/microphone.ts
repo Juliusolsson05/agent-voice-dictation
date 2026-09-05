@@ -8,6 +8,18 @@ export function normalizeMicrophoneDeviceId(value: unknown): string | null {
 
 export type MicrophoneOption = { deviceId: string; label: string }
 
+// Persist intent rather than a Chromium id: Continuity devices can be assigned a
+// different id after reconnecting. This token is never passed to getUserMedia.
+export const AUTO_IPHONE = 'agent-voice:auto-iphone'
+type CaptureDevices = Pick<MediaDevices, 'getUserMedia'> & Partial<Pick<MediaDevices, 'enumerateDevices'>>
+
+export function iPhoneMicrophones(devices: readonly MicrophoneOption[]): MicrophoneOption[] {
+  // Web media APIs provide labels, not Apple's native transport/device type.
+  // Be conservative: a renamed phone without either label needs explicit
+  // selection. Never guess that an arbitrary external microphone is an iPhone.
+  return devices.filter(device => /\biphone\b|\bcontinuity\b/i.test(device.label))
+}
+
 export function microphoneOptions(devices: readonly MediaDeviceInfo[]): MicrophoneOption[] {
   const seen = new Set<string>()
   return devices.filter(device => {
@@ -24,11 +36,21 @@ export function microphoneOptions(devices: readonly MediaDeviceInfo[]): Micropho
   }))
 }
 
-export function openMicrophone(
-  devices: Pick<MediaDevices, 'getUserMedia'>,
+export async function openMicrophone(
+  devices: CaptureDevices,
   selectedId: string | null,
 ): Promise<MediaStream> {
-  const deviceId = normalizeMicrophoneDeviceId(selectedId)
+  let deviceId = normalizeMicrophoneDeviceId(selectedId)
+  if (deviceId === AUTO_IPHONE) {
+    const candidates = iPhoneMicrophones(microphoneOptions(await devices.enumerateDevices?.() ?? []))
+    if (candidates.length === 0) {
+      throw new Error('iPhone microphone is not available to macOS yet. Keep it nearby and locked with Continuity Camera, Wi-Fi and Bluetooth on. Then try again. No other microphone was opened.')
+    }
+    if (candidates.length > 1) {
+      throw new Error('More than one iPhone microphone is available. Choose your phone by name in Settings.')
+    }
+    deviceId = candidates[0].deviceId
+  }
   // Exact is intentional: "ideal" silently falls back if an iPhone disconnects,
   // potentially capturing a room mic the user did not choose. Surface an error
   // and let the user deliberately select System default instead.
@@ -59,7 +81,7 @@ export class MicrophoneCapture {
   private generation = 0
   private stream: MediaStream | null = null
 
-  constructor(private devices: Pick<MediaDevices, 'getUserMedia'>) {}
+  constructor(private devices: CaptureDevices) {}
 
   async open(deviceId: string | null): Promise<MediaStream | null> {
     this.stop()

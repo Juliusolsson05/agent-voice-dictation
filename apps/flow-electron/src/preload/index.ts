@@ -56,9 +56,11 @@ export type FlowApi = {
     hide(): Promise<void>
   }
   app: {
+    platform: string
     openDataFolder(): Promise<void>
     version(): Promise<string>
   }
+  hotkeys: { capture(enabled: boolean): Promise<void>; status(): Promise<{ running: boolean; error: string | null; lastPressAt: number | null }>; retry(): Promise<unknown> }
   events: {
     onHotkeyFired(handler: () => void): () => void
     onHotkeyDown(handler: () => void): () => void
@@ -108,9 +110,12 @@ const api: FlowApi = {
     hide: () => ipcRenderer.invoke('status:hide'),
   },
   app: {
+    platform: process.platform,
     openDataFolder: () => ipcRenderer.invoke('app:open-data-folder'),
     version: () => ipcRenderer.invoke('app:version'),
   },
+  hotkeys: { capture: enabled => ipcRenderer.invoke('hotkey:capture', enabled),
+    status: () => ipcRenderer.invoke('hotkey:status'), retry: () => ipcRenderer.invoke('hotkey:retry') },
   events: {
     onHotkeyFired(handler) {
       const wrapped = () => handler()

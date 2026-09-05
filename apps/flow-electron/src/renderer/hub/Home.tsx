@@ -9,6 +9,7 @@ import { stripSttTag, wrapWithSttTag } from 'agent-voice-dictation/composer'
 
 import type { AppSettings, DictationRecord } from '../../preload/index'
 import { formatBindingForDisplay } from '../../shared/hotkeyBinding'
+import { displayMouseBinding } from '../../shared/mouseBinding'
 
 type Props = {
   settings: AppSettings | null
@@ -34,7 +35,8 @@ export function Home({ settings, recents, onChanged, onOpenSettings }: Props) {
 
   return (
     <div style={pageStyle}>
-      <Hero hotkey={hotkeyText} provider={provider} polish={polish} onOpenSettings={onOpenSettings} />
+      <Hero hotkey={hotkeyText} mouseHotkey={settings?.mouseHotkey ?? null}
+        provider={provider} polish={polish} onOpenSettings={onOpenSettings} />
       <StatsPanel stats={stats} />
       <RecentList
         recents={recents}
@@ -47,11 +49,13 @@ export function Home({ settings, recents, onChanged, onOpenSettings }: Props) {
 
 function Hero({
   hotkey,
+  mouseHotkey,
   provider,
   polish,
   onOpenSettings,
 }: {
   hotkey: string
+  mouseHotkey: string | null
   provider: string
   polish: string
   onOpenSettings: () => void
@@ -60,7 +64,7 @@ function Hero({
     <section style={heroStyle}>
       <div style={heroTopStyle}>
         <div>
-          <div style={heroEyebrowStyle}>Dictation ready</div>
+          <div style={heroEyebrowStyle}>Voice dictation</div>
           <h1 style={heroHeadlineStyle}>Hold {fmtAccelerator(hotkey)}</h1>
         </div>
         <button type="button" className="btn btn-ghost" onClick={onOpenSettings}>
@@ -68,6 +72,7 @@ function Hero({
         </button>
       </div>
       <p style={heroSubtextStyle}>
+        {mouseHotkey && <>Or hold {displayMouseBinding(mouseHotkey)}. </>}
         Speak into any focused text field. The text is streamed, cleaned only when enabled,
         and pasted back at the cursor.
       </p>

@@ -13,7 +13,8 @@
     "prestart": "npm --prefix ../.. run build",
     "start": "electron-vite preview",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:native": "node scripts/test-native.mjs"
   },
   "dependencies": {
     "agent-voice-dictation": "file:../.."

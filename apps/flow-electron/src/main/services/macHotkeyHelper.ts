@@ -7,72 +7,115 @@ import { constants } from 'node:fs'
 import { join } from 'node:path'
 
 let child: ChildProcessByStdio<null, Readable, Readable> | null = null
+let generation = 0
+let listenerStatus = { running: false, error: 'Shortcut listener has not started.' as string | null, lastPressAt: null as number | null }
+export function getMacHotkeyHelperStatus() { return { ...listenerStatus } }
+let releaseHeld: (() => void) | null = null
+let building: Promise<string> | null = null
 
 export async function startMacHotkeyHelper(
   binding: string,
   handlers: { onPress: () => void; onRelease?: () => void },
-  yieldTargets: {
-    frontmostBundleIds: string[]
-    frontmostAppNames: string[]
-  } = { frontmostBundleIds: [], frontmostAppNames: [] },
+  yieldTargets: { frontmostBundleIds: string[]; frontmostAppNames: string[] }
+    = { frontmostBundleIds: [], frontmostAppNames: [] },
+  mouseBinding: string | null = null,
 ): Promise<boolean> {
   stopMacHotkeyHelper()
-
+  const request = generation
+  listenerStatus = { ...listenerStatus, running: false, error: 'Starting shortcut listener…' }
   if (process.platform !== 'darwin') return false
-
   try {
-    const binary = await ensureHelperBinary()
-    child = spawn(binary, [binding, JSON.stringify(yieldTargets)], {
+    // Coalesce builds: simultaneous preference updates must not write the same
+    // executable concurrently. Generation still decides which request may launch.
+    building ??= ensureHelperBinary().finally(() => { building = null })
+    const binary = await building
+    if (request !== generation) return false
+    const current = spawn(binary, [binding, JSON.stringify(yieldTargets), mouseBinding ?? ''], {
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-
-    child.stdout.setEncoding('utf8')
-    child.stdout.on('data', (chunk) => {
-      for (const line of String(chunk).split('\n')) {
-        if (!line.trim()) continue
-        try {
-          const event = JSON.parse(line) as { type?: string }
-          if (event.type === 'hotkey' || event.type === 'hotkey-down') handlers.onPress()
-          if (event.type === 'hotkey-up') handlers.onRelease?.()
-          if (event.type === 'ready') {
-            // eslint-disable-next-line no-console
-            console.log(`[hotkey] mac helper ready for "${binding}"`)
-          }
-        } catch {
-          // eslint-disable-next-line no-console
-          console.log('[hotkey] mac helper stdout:', line)
+    child = current
+    let held = false
+    const release = () => {
+      if (held) { held = false; handlers.onRelease?.() }
+    }
+    releaseHeld = release
+    return await new Promise<boolean>(resolve => {
+      let settled = false
+      const finish = (ok: boolean) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timeout)
+        resolve(ok)
+      }
+      const timeout = setTimeout(() => {
+        if (child === current) {
+          stopMacHotkeyHelper()
+          listenerStatus.error = 'Shortcut listener did not become ready. Check Accessibility permission and retry.'
         }
+        finish(false)
+      }, 5000)
+      let pending = ''
+      current.stdout.setEncoding('utf8')
+      current.stdout.on('data', chunk => {
+        if (request !== generation || child !== current) return
+        // Pipes split JSON at arbitrary byte boundaries. Preserve partial lines
+        // so a split hotkey-up cannot leave the recorder running indefinitely.
+        pending += String(chunk)
+        if (pending.length > 32768) { stopMacHotkeyHelper(); finish(false); return }
+        const lines = pending.split('\n')
+        pending = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.trim()) continue
+          try {
+            const event = JSON.parse(line) as { type?: string }
+            if (event.type === 'permission-required') listenerStatus.error = 'Accessibility permission is required. Enable Agent Voice in System Settings → Privacy & Security → Accessibility, then retry.'
+            if (event.type === 'ready') {
+              listenerStatus = { ...listenerStatus, running: true, error: null }
+              finish(true)
+            }
+            if ((event.type === 'hotkey-down' || event.type === 'hotkey') && !held) {
+              held = true
+              listenerStatus.lastPressAt = Date.now()
+              handlers.onPress()
+            }
+            if (event.type === 'hotkey-up') release()
+          } catch { /* Ignore malformed protocol lines, never log input payloads. */ }
+        }
+      })
+      current.stderr.setEncoding('utf8')
+      current.stderr.on('data', chunk => console.warn(String(chunk).trim()))
+      const ended = () => {
+        // A killed predecessor can exit after its replacement starts. Only its
+        // own closure may settle here; it must not clear the replacement handle.
+        if (child === current) {
+          release()
+          child = null
+          releaseHeld = null
+          listenerStatus = { ...listenerStatus, running: false, error: listenerStatus.error?.includes('Accessibility') ? listenerStatus.error : 'Shortcut listener stopped. Retry shortcuts.' }
+        }
+        finish(false)
       }
+      current.on('error', ended)
+      current.on('exit', ended)
     })
-
-    child.stderr.setEncoding('utf8')
-    child.stderr.on('data', (chunk) => {
-      // eslint-disable-next-line no-console
-      console.warn(String(chunk).trim())
-    })
-
-    child.on('exit', (code, signal) => {
-      if (child) {
-        // eslint-disable-next-line no-console
-        console.warn(`[hotkey] mac helper exited code=${code ?? 'null'} signal=${signal ?? 'null'}`)
-      }
-      child = null
-    })
-
-    return true
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn('[hotkey] failed to start mac helper', err)
-    stopMacHotkeyHelper()
+    if (request === generation) {
+      console.warn('[hotkey] failed to start mac helper', err)
+      stopMacHotkeyHelper()
+      listenerStatus.error = 'Could not start the shortcut listener. Check Accessibility permission and retry.'
+    }
     return false
   }
 }
 
 export function stopMacHotkeyHelper(): void {
-  if (!child) return
+  generation += 1
   const current = child
   child = null
-  current.kill()
+  listenerStatus = { ...listenerStatus, running: false, error: 'Shortcut listener is paused.' }
+  releaseHeld?.()
+  releaseHeld = null
+  current?.kill()
 }
 
 async function ensureHelperBinary(): Promise<string> {
@@ -84,12 +127,10 @@ async function ensureHelperBinary(): Promise<string> {
   // command line tools, and in packaging we can later move this same
   // source into a deterministic build step without changing the app's
   // runtime protocol.
-  const source = join(
-    app.getAppPath(),
-    'native/macos-hotkey-helper/Sources/AgentVoiceHotkeyHelper/main.swift',
-  )
-  const sourceBytes = await readFile(source)
-  const hash = createHash('sha256').update(sourceBytes).digest('hex').slice(0, 12)
+  const directory = join(app.getAppPath(), 'native/macos-hotkey-helper/Sources/AgentVoiceHotkeyHelper')
+  const sources = ['main.swift', 'BindingState.swift'].map(file => join(directory, file))
+  const bytes = await Promise.all(sources.map(source => readFile(source)))
+  const hash = createHash('sha256').update(Buffer.concat(bytes)).digest('hex').slice(0, 12)
   const dir = join(app.getPath('userData'), 'native-helpers')
   const target = join(dir, `AgentVoiceHotkeyHelper-${hash}`)
 
@@ -101,15 +142,15 @@ async function ensureHelperBinary(): Promise<string> {
   }
 
   await mkdir(dir, { recursive: true })
-  await compileSwift(source, target)
+  await compileSwift(sources, target)
   await chmod(target, 0o755)
   await stat(target)
   return target
 }
 
-function compileSwift(source: string, target: string): Promise<void> {
+function compileSwift(sources: string[], target: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const compiler = spawn('/usr/bin/xcrun', ['swiftc', source, '-O', '-o', target], {
+    const compiler = spawn('/usr/bin/xcrun', ['swiftc', ...sources, '-O', '-o', target], {
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stderr = ''

@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   MicrophoneCapture,
+  AUTO_IPHONE,
+  iPhoneMicrophones,
   microphoneErrorMessage,
   microphoneOptions,
   type MicrophoneOption,
@@ -63,6 +65,9 @@ export function MicrophoneSettings({ deviceId, onChange }: Props) {
       else void refresh()
     }
     navigator.mediaDevices.addEventListener('devicechange', onDeviceChange)
+    // Continuity can reappear without a prompt devicechange notification.
+    // Enumeration is discovery only; never open audio to keep the phone awake.
+    const refreshTimer = setInterval(() => { if (!document.hidden) void refresh() }, 3000)
     document.addEventListener('visibilitychange', onVisibility)
     // Dictation owns capture priority. A local test must not contend with the
     // status window or leave a second microphone open after the dictation ends.
@@ -75,6 +80,7 @@ export function MicrophoneSettings({ deviceId, onChange }: Props) {
       offDown()
       offToggle()
       navigator.mediaDevices.removeEventListener('devicechange', onDeviceChange)
+      clearInterval(refreshTimer)
       document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [refresh, stop])
@@ -149,7 +155,9 @@ export function MicrophoneSettings({ deviceId, onChange }: Props) {
     }
   }
 
-  const unavailable = !!deviceId && !devices.some(device => device.deviceId === deviceId)
+  const automatic = deviceId === AUTO_IPHONE
+  const phones = iPhoneMicrophones(devices)
+  const unavailable = !!deviceId && !automatic && !devices.some(device => device.deviceId === deviceId)
   return (
     <div style={{ display: 'grid', gap: 10, minWidth: 0 }}>
       <select
@@ -164,11 +172,17 @@ export function MicrophoneSettings({ deviceId, onChange }: Props) {
         <option value="">System default</option>
         {unavailable && <option value={deviceId!}>Saved microphone (unavailable or permission needed)</option>}
         {devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label}</option>)}
+        <option value={AUTO_IPHONE}>iPhone (automatic, wireless)</option>
       </select>
       <p id="microphone-help" style={{ margin: 0, fontSize: 11, color: 'var(--ink-dim)' }}>
         Changes apply to the next dictation. A selected microphone never silently switches to another.
-        iPhone inputs appear when connected through macOS Continuity Camera.
+        iPhone works wirelessly through macOS Continuity Camera. Automatic mode finds it again for each dictation.
       </p>
+      {automatic && <span role="status" aria-label="iPhone availability" style={{ fontSize: 12 }}>
+        {phones.length === 1 ? `Ready: ${phones[0].label}` : phones.length > 1
+          ? 'Multiple iPhones found. Select your phone by name.'
+          : 'Waiting for macOS to expose your iPhone microphone. Keep it nearby and locked, with Continuity Camera, Wi-Fi and Bluetooth on.'}
+      </span>}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button type="button" className="btn" disabled={saving}
           onClick={() => { if (phase === 'idle') void test(); else stop() }}>
