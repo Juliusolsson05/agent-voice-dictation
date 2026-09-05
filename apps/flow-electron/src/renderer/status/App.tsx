@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { MicPill } from './MicPill'
+import { PHONE_MIC } from '../../shared/phoneMic'
+import { PhoneReceiver } from '../phone/receiver'
 import { playCloseSound, playOpenSound } from './sounds'
 import { microphoneErrorMessage, openMicrophone } from '../../shared/microphone'
 
@@ -44,6 +46,8 @@ export function App() {
   const [error, setError] = useState<string | null>(null)
   const [handsFree, setHandsFree] = useState(false)
   const [visible, setVisible] = useState(true)
+  const phoneRef = useRef<PhoneReceiver | null>(null)
+  const usingPhoneRef = useRef(false)
   const recRef = useRef<MediaRecorder | null>(null)
   const lifecycleRef = useRef<LifecycleState>('idle')
   const pendingStopRef = useRef(false)
@@ -202,7 +206,10 @@ export function App() {
       const gumStartedAt = Date.now()
       // Read once per recording: changing Settings must not cut a sentence in
       // half or mix two devices into the same streaming container.
-      const stream = await openMicrophone(navigator.mediaDevices, settings.microphoneDeviceId)
+      usingPhoneRef.current = settings.microphoneDeviceId === PHONE_MIC
+      const stream = usingPhoneRef.current
+        ? phoneRef.current!.open()
+        : await openMicrophone(navigator.mediaDevices, settings.microphoneDeviceId)
       if (recordingGeneration !== recordingGenerationRef.current) {
         stream.getTracks().forEach(track => track.stop())
         return
@@ -519,6 +526,20 @@ export function App() {
     pendingChunkSendsRef.current = []
     stopMeter()
   }, [stopMeter])
+
+  useEffect(() => {
+    const receiver = new PhoneReceiver(window.flow.phone, () => {
+      if (!usingPhoneRef.current || !['starting', 'recording', 'stopping'].includes(lifecycleRef.current)) return
+      // Invalidate recorder callbacks first so a partial sentence from a lost
+      // phone cannot finalize and paste as though the user intentionally stopped.
+      recordingGenerationRef.current += 1
+      cancelRecording()
+      resetToIdle()
+      showTransientError('Phone disconnected. Reconnect in Chrome on your phone.')
+    })
+    phoneRef.current = receiver; receiver.start()
+    return () => { usingPhoneRef.current = false; receiver.dispose(); phoneRef.current = null }
+  }, [cancelRecording, resetToIdle, showTransientError])
 
   // macOS default is true hold-to-talk: the native helper emits explicit
   // press/release events because Electron's globalShortcut cannot represent the

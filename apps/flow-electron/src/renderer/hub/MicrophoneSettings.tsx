@@ -8,6 +8,9 @@ import {
   type MicrophoneOption,
 } from '../../shared/microphone'
 
+import { PHONE_MIC } from '../../shared/phoneMic'
+import { PhoneMicrophoneSettings } from './PhoneMicrophoneSettings'
+
 type Props = {
   deviceId: string | null
   onChange: (deviceId: string | null) => Promise<void>
@@ -155,9 +158,10 @@ export function MicrophoneSettings({ deviceId, onChange }: Props) {
     }
   }
 
+  const phone = deviceId === PHONE_MIC
   const automatic = deviceId === AUTO_IPHONE
   const phones = iPhoneMicrophones(devices)
-  const unavailable = !!deviceId && !automatic && !devices.some(device => device.deviceId === deviceId)
+  const unavailable = !!deviceId && !automatic && !phone && !devices.some(device => device.deviceId === deviceId)
   return (
     <div style={{ display: 'grid', gap: 10, minWidth: 0 }}>
       <select
@@ -170,6 +174,7 @@ export function MicrophoneSettings({ deviceId, onChange }: Props) {
         onChange={event => { void change(event.target.value) }}
       >
         <option value="">System default</option>
+        <option value={PHONE_MIC}>Phone over Wi-Fi (Chrome)</option>
         {unavailable && <option value={deviceId!}>Saved microphone (unavailable or permission needed)</option>}
         {devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label}</option>)}
         <option value={AUTO_IPHONE}>iPhone (automatic, wireless)</option>
@@ -183,6 +188,7 @@ export function MicrophoneSettings({ deviceId, onChange }: Props) {
           ? 'Multiple iPhones found. Select your phone by name.'
           : 'Waiting for macOS to expose your iPhone microphone. Keep it nearby and locked, with Continuity Camera, Wi-Fi and Bluetooth on.'}
       </span>}
+      {phone ? <PhoneMicrophoneSettings /> : <>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button type="button" className="btn" disabled={saving}
           onClick={() => { if (phase === 'idle') void test(); else stop() }}>
@@ -196,6 +202,7 @@ export function MicrophoneSettings({ deviceId, onChange }: Props) {
           : phase === 'starting' ? 'Waiting for microphone access…'
           : loading ? 'Checking available inputs…' : 'Test audio stays on this device. The microphone is off until you test or dictate.'}
       </span>
+      </>}
       {unavailable && !loading && <span style={{ fontSize: 11, color: 'var(--ink-dim)' }}>
         Reconnect your saved microphone, test to grant access, or select System default.
       </span>}

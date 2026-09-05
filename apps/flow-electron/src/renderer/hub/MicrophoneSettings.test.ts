@@ -95,10 +95,10 @@ it('retains an unplugged selection and refreshes when the device returns', async
   devices.enumerateDevices.mockResolvedValue([])
   await act(async () => { devices.dispatchEvent(new Event('devicechange')) })
   expect(view.root.findByType('select').props.value).toBe('iphone')
-  expect(view.root.findAllByType('option')[1].children.join('')).toContain('Saved microphone')
+  expect(view.root.findAllByType('option').find(option => option.props.value === 'iphone')!.children.join('')).toContain('Saved microphone')
   devices.enumerateDevices.mockResolvedValue([{ kind: 'audioinput', deviceId: 'iphone', label: 'iPhone' }])
   await act(async () => { devices.dispatchEvent(new Event('devicechange')) })
-  expect(view.root.findAllByType('option')[1].children.join('')).toBe('iPhone')
+  expect(view.root.findAllByType('option').find(option => option.props.value === 'iphone')!.children.join('')).toBe('iPhone')
   expect(onChange).not.toHaveBeenCalled()
 })
 
