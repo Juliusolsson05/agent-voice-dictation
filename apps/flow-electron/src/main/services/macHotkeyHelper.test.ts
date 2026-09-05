@@ -2,8 +2,8 @@ import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-const mocked = vi.hoisted(() => ({ spawn: vi.fn(), readFile: vi.fn() }))
-vi.mock('electron', () => ({ app: { getAppPath: () => '/app', getPath: () => '/profile' } }))
+const mocked = vi.hoisted(() => ({ spawn: vi.fn(), readFile: vi.fn(), packaged: false }))
+vi.mock('electron', () => ({ app: { get isPackaged() { return mocked.packaged }, getAppPath: () => '/app', getPath: () => '/profile' } }))
 vi.mock('node:child_process', () => ({ spawn: mocked.spawn }))
 vi.mock('node:fs/promises', () => ({
   readFile: mocked.readFile, access: vi.fn().mockResolvedValue(undefined),
@@ -19,6 +19,7 @@ function processStub() {
 let current: ReturnType<typeof processStub>
 const down = vi.fn(), up = vi.fn()
 beforeEach(() => {
+  mocked.packaged = false
   vi.useFakeTimers()
   vi.stubGlobal('process', { ...process, platform: 'darwin' })
   mocked.readFile.mockReset().mockResolvedValue(Buffer.from('test-source'))
@@ -98,4 +99,11 @@ it('surfaces permission refusal instead of presenting saved bindings as active',
   expect(await pending).toBe(false)
   expect(getMacHotkeyHelperStatus().running).toBe(false)
   expect(getMacHotkeyHelperStatus().error).toContain('Accessibility')
+})
+
+it('uses the signed bundled helper in packaged builds without compiling source', async () => {
+  mocked.packaged = true
+  await start()
+  expect(mocked.spawn.mock.calls[0][0]).toBe('/app/native/AgentVoiceHotkeyHelper')
+  expect(mocked.readFile).not.toHaveBeenCalled()
 })
