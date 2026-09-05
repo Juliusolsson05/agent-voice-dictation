@@ -9,3 +9,9 @@ Stack on feat/microphone-selection (PR #38), preserve the original checkout, and
 5. Re-check stored-key status; #26 was a false-positive audit finding and is corrected in GitHub. No IPC payload fix is needed.
 6. Test persistence, UI and IPC contracts, compile/test Swift, run root/Electron checks, package the resulting branch, and verify the running app uses Deepgram with polish off and both bindings enabled.
 7. Open a stacked PR for #39 with validation and limitations; do not merge.
+
+## Wireless iPhone follow-up (#40)
+
+Native AVFoundation discovery and macOS Sound currently expose only the built-in input, with Mac Wi-Fi/Bluetooth on and the user confirming the nearby locked phone has Continuity Camera enabled. USB is not required for normal Continuity microphone use. Keep pairing/discovery under macOS control.
+
+Add an explicit automatic iPhone choice, resolve current device IDs for every test/dictation, and display availability refreshed on device changes and while settings are visible. Match exposed iPhone/Continuity labels conservatively; ambiguous devices require explicit selection. Fail without opening a different input. Preserve cancellation and no background recording. Verify reconnect/absence/ambiguity in tests, then package both input features together and report physical connection separately.
