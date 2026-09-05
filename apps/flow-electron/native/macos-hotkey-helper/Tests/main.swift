@@ -57,3 +57,9 @@ for invalid in ["", "MOUSE_LEFT", "MOUSE_99", "Shift+Shift+MOUSE_MIDDLE", "garba
   check((try? BindingDefinition(invalid)) == nil, "reject invalid binding")
 }
 print("Native binding contracts passed: middle, modifiers, overlap, repeat, release ownership, yield and reset.")
+let extended = try BindingDefinition("Shift+MOUSE_7")
+assert(extended.mouseButton == 6)
+var extendedState = BindingState(bindings: [extended])
+assert(extendedState.handle(BindingInput(type: .otherMouseDown, mouseButton: 6, modifiers: ["Shift"])).transition == "hotkey-down")
+assert(extendedState.handle(BindingInput(type: .otherMouseUp, mouseButton: 6)).transition == "hotkey-up")
+assert((try? BindingDefinition("MOUSE_33")) == nil)

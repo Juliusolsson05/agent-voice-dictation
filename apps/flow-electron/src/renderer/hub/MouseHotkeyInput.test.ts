@@ -2,40 +2,57 @@ import React from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { MouseHotkeyInput } from './MouseHotkeyInput'
-
 let view: ReactTestRenderer
-const save = vi.fn<(binding: string | null) => Promise<void>>()
+const save = vi.fn(), keyboard = vi.fn(), capture = vi.fn()
 beforeEach(() => {
   save.mockReset().mockResolvedValue(undefined)
-  vi.stubGlobal('window', { flow: { app: { platform: 'darwin' } } })
+  keyboard.mockReset().mockResolvedValue(undefined)
+  capture.mockReset().mockResolvedValue(undefined)
+  vi.stubGlobal('window', Object.assign(new EventTarget(), { flow: { app: { platform: 'darwin' }, hotkeys: { capture } } }))
 })
 afterEach(() => { if (view) act(() => view.unmount()); vi.unstubAllGlobals() })
-async function mount(value: string | null) {
-  await act(async () => { view = create(React.createElement(MouseHotkeyInput, { value, onChange: save })) })
+async function mount() {
+  await act(async () => { view = create(React.createElement(MouseHotkeyInput, { value: 'MOUSE_MIDDLE', onChange: save, onKeyboardChange: keyboard })) })
+  await act(async () => { view.root.findByProps({ 'aria-label': 'Capture keyboard or mouse shortcut' }).props.onClick() })
 }
-it('adds a middle-click trigger and can disable it without altering the keyboard binding', async () => {
-  await mount(null)
-  await act(async () => { view.root.findByType('select').props.onChange({ target: { value: 'MOUSE_MIDDLE' } }) })
-  expect(save).toHaveBeenCalledWith('MOUSE_MIDDLE')
-  await act(async () => { view.root.findByType('select').props.onChange({ target: { value: '' } }) })
-  expect(save).toHaveBeenLastCalledWith(null)
-})
-it('saves a keyboard modifier plus the chosen mouse button', async () => {
-  await mount('MOUSE_MIDDLE')
-  const shift = view.root.findAllByType('input')[3]
-  await act(async () => { shift.props.onChange({ target: { checked: true } }) })
+async function event(type: string, props: object) {
+  await act(async () => { window.dispatchEvent(Object.assign(new Event(type, { cancelable: true }), props)) })
+}
+it('captures the physical middle press with modifiers only after release and preserves the keyboard', async () => {
+  await mount()
+  expect(capture).toHaveBeenCalledWith(true)
+  await event('mousedown', { button: 1, shiftKey: true })
+  expect(save).not.toHaveBeenCalled()
+  expect(view.root.findByProps({ role: 'status' }).children.join('')).toContain('Detected Shift + Middle click')
+  await event('mouseup', { button: 1 })
   expect(save).toHaveBeenCalledWith('Shift+MOUSE_MIDDLE')
+  expect(keyboard).not.toHaveBeenCalled()
+  expect(capture).toHaveBeenLastCalledWith(false)
 })
-it('exposes failed persistence and leaves the current choice intact', async () => {
-  await mount(null)
+it('captures extended mouse buttons rather than limiting selection to a menu', async () => {
+  await mount()
+  await event('mousedown', { button: 6 })
+  await event('mouseup', { button: 6 })
+  expect(save).toHaveBeenCalledWith('MOUSE_7')
+})
+it('records a keyboard event into the keyboard slot and leaves the mouse slot intact', async () => {
+  await mount()
+  await event('keydown', { key: 'a', code: 'KeyA', ctrlKey: true, getModifierState: () => false })
+  expect(keyboard).toHaveBeenCalledWith('Ctrl+A')
+  expect(save).not.toHaveBeenCalled()
+})
+it('ignores ordinary clicks and cancels safely on Escape or window dismissal', async () => {
+  await mount()
+  await event('mousedown', { button: 0 })
+  await event('mouseup', { button: 0 })
+  expect(save).not.toHaveBeenCalled()
+  await event('keydown', { key: 'Escape' })
+  expect(capture).toHaveBeenLastCalledWith(false)
+})
+it('reports persistence failure without claiming success', async () => {
+  await mount()
   save.mockRejectedValueOnce(new Error('disk failure'))
-  await act(async () => { view.root.findByType('select').props.onChange({ target: { value: 'MOUSE_MIDDLE' } }) })
+  await event('mousedown', { button: 1 })
+  await event('mouseup', { button: 1 })
   expect(view.root.findByProps({ role: 'alert' }).children.join('')).toContain('Could not save')
-  expect(view.root.findByType('select').props.value).toBe('')
-})
-it('does not offer a working mouse binding on an unsupported platform', async () => {
-  window.flow.app.platform = 'linux'
-  await mount(null)
-  expect(view.root.findByType('select').props.disabled).toBe(true)
-  expect(view.root.findByProps({ role: 'status' }).children.join('')).toContain('require macOS')
 })

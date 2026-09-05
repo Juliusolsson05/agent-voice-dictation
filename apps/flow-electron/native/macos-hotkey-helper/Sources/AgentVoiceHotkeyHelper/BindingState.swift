@@ -47,7 +47,13 @@ struct BindingDefinition {
     modifiers = Set(mods)
     let trigger = parts.last.flatMap { modifierNames.contains($0) ? nil : $0 }
     keyCode = trigger.flatMap { keyCodes[$0].map(Int64.init) }
-    mouseButton = trigger.flatMap { ["MOUSE_MIDDLE": Int64(2), "MOUSE_4": 3, "MOUSE_5": 4][$0] }
+    mouseButton = trigger.flatMap { token in
+      if token == "MOUSE_MIDDLE" { return Int64(2) }
+      if token.hasPrefix("MOUSE_"), let number = Int64(token.dropFirst(6)), (4...32).contains(number) {
+        return number - 1
+      }
+      return nil
+    }
     guard !value.isEmpty, Set(parts).count == parts.count,
           mods.count + (trigger == nil ? 0 : 1) == parts.count,
           trigger == nil || keyCode != nil || mouseButton != nil else {

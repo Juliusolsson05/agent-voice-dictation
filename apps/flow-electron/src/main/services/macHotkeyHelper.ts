@@ -8,6 +8,8 @@ import { join } from 'node:path'
 
 let child: ChildProcessByStdio<null, Readable, Readable> | null = null
 let generation = 0
+let listenerStatus = { running: false, error: 'Shortcut listener has not started.' as string | null, lastPressAt: null as number | null }
+export function getMacHotkeyHelperStatus() { return { ...listenerStatus } }
 let releaseHeld: (() => void) | null = null
 let building: Promise<string> | null = null
 
@@ -20,6 +22,7 @@ export async function startMacHotkeyHelper(
 ): Promise<boolean> {
   stopMacHotkeyHelper()
   const request = generation
+  listenerStatus = { ...listenerStatus, running: false, error: 'Starting shortcut listener…' }
   if (process.platform !== 'darwin') return false
   try {
     // Coalesce builds: simultaneous preference updates must not write the same
@@ -45,7 +48,10 @@ export async function startMacHotkeyHelper(
         resolve(ok)
       }
       const timeout = setTimeout(() => {
-        if (child === current) stopMacHotkeyHelper()
+        if (child === current) {
+          stopMacHotkeyHelper()
+          listenerStatus.error = 'Shortcut listener did not become ready. Check Accessibility permission and retry.'
+        }
         finish(false)
       }, 5000)
       let pending = ''
@@ -62,9 +68,14 @@ export async function startMacHotkeyHelper(
           if (!line.trim()) continue
           try {
             const event = JSON.parse(line) as { type?: string }
-            if (event.type === 'ready') finish(true)
+            if (event.type === 'permission-required') listenerStatus.error = 'Accessibility permission is required. Enable Agent Voice in System Settings → Privacy & Security → Accessibility, then retry.'
+            if (event.type === 'ready') {
+              listenerStatus = { ...listenerStatus, running: true, error: null }
+              finish(true)
+            }
             if ((event.type === 'hotkey-down' || event.type === 'hotkey') && !held) {
               held = true
+              listenerStatus.lastPressAt = Date.now()
               handlers.onPress()
             }
             if (event.type === 'hotkey-up') release()
@@ -80,6 +91,7 @@ export async function startMacHotkeyHelper(
           release()
           child = null
           releaseHeld = null
+          listenerStatus = { ...listenerStatus, running: false, error: listenerStatus.error?.includes('Accessibility') ? listenerStatus.error : 'Shortcut listener stopped. Retry shortcuts.' }
         }
         finish(false)
       }
@@ -90,6 +102,7 @@ export async function startMacHotkeyHelper(
     if (request === generation) {
       console.warn('[hotkey] failed to start mac helper', err)
       stopMacHotkeyHelper()
+      listenerStatus.error = 'Could not start the shortcut listener. Check Accessibility permission and retry.'
     }
     return false
   }
@@ -99,6 +112,7 @@ export function stopMacHotkeyHelper(): void {
   generation += 1
   const current = child
   child = null
+  listenerStatus = { ...listenerStatus, running: false, error: 'Shortcut listener is paused.' }
   releaseHeld?.()
   releaseHeld = null
   current?.kill()

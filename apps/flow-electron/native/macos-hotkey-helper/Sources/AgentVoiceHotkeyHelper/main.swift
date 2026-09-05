@@ -85,6 +85,7 @@ func emit(_ type: String) {
 
 let promptOptions = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
 if !AXIsProcessTrustedWithOptions(promptOptions) {
+  emit("permission-required")
   fputs("[agent-voice-hotkey-helper] accessibility permission is required\n", stderr)
 }
 

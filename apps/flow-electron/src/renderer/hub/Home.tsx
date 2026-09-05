@@ -64,7 +64,7 @@ function Hero({
     <section style={heroStyle}>
       <div style={heroTopStyle}>
         <div>
-          <div style={heroEyebrowStyle}>Dictation ready</div>
+          <div style={heroEyebrowStyle}>Voice dictation</div>
           <h1 style={heroHeadlineStyle}>Hold {fmtAccelerator(hotkey)}</h1>
         </div>
         <button type="button" className="btn btn-ghost" onClick={onOpenSettings}>

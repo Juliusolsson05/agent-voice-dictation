@@ -12,3 +12,9 @@ it('rejects unsafe ordinary clicks and unsupported or malformed chords', () => {
     expect(() => normalizeMouseBinding(value)).toThrow()
   }
 })
+
+it('supports extended native buttons and rejects numbers outside the event range', () => {
+  expect(normalizeMouseBinding('MOUSE_7')).toBe('MOUSE_7')
+  expect(normalizeMouseBinding('MOUSE_32')).toBe('MOUSE_32')
+  expect(() => normalizeMouseBinding('MOUSE_33')).toThrow()
+})

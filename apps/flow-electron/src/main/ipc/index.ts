@@ -24,6 +24,7 @@ import {
   startStreamingDictation,
   stopStreamingDictation,
 } from '@main/services/dictationController.js'
+import { getMacHotkeyHelperStatus } from '@main/services/macHotkeyHelper.js'
 import { registerConfiguredHotkey, setHotkeyCapture } from '@main/services/hotkey.js'
 import { showStatus, hideStatus } from '@main/windows/status.js'
 import { listDictationIntegrationSummaries } from '@main/integrations/registry.js'
@@ -61,6 +62,8 @@ export function registerIpc(): void {
   // A renderer may disappear while its shortcut editor owns capture. Restore
   // global bindings on teardown; losing the window must not disable dictation.
   const observedCaptureOwners = new Set<number>()
+  ipcMain.handle('hotkey:status', () => getMacHotkeyHelperStatus())
+  ipcMain.handle('hotkey:retry', () => registerConfiguredHotkey())
   ipcMain.handle('hotkey:capture', async (event, enabled: boolean) => {
     if (typeof enabled !== 'boolean') throw new Error('Expected capture boolean')
     const sender = event.sender

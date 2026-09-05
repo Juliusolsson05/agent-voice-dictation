@@ -13,7 +13,7 @@ export function normalizeMouseBinding(value: unknown): string | null {
   if (typeof value !== 'string') throw new Error('Invalid mouse shortcut.')
   const parts = value.split('+')
   const button = parts.pop()
-  if (!MOUSE_BUTTONS.some(item => item.value === button)
+  if (!(button === 'MOUSE_MIDDLE' || /^MOUSE_([4-9]|[12][0-9]|3[0-2])$/.test(button ?? ''))
     || new Set(parts).size !== parts.length
     || parts.some(part => !MOUSE_MODIFIERS.some(mod => mod === part))) {
     throw new Error('Choose a supported mouse button and optional modifiers.')
@@ -23,5 +23,13 @@ export function normalizeMouseBinding(value: unknown): string | null {
 
 export function displayMouseBinding(value: string): string {
   return value.replace('MOUSE_MIDDLE', 'Middle click').replace('MOUSE_4', 'Mouse 4')
-    .replace('MOUSE_5', 'Mouse 5').replaceAll('+', ' + ')
+    .replace(/MOUSE_(\d+)/, 'Mouse $1').replaceAll('+', ' + ')
+}
+
+// DOM calls middle button 1, while CoreGraphics calls it 2. Extended DOM
+// buttons use the same native indices; stored names are human one-based.
+export function bindingFromMouseEvent(event: Pick<MouseEvent, 'button' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'>): string | null {
+  if (event.button !== 1 && (event.button < 3 || event.button > 31)) return null
+  const modifiers = [event.metaKey && 'Cmd', event.ctrlKey && 'Ctrl', event.altKey && 'Option', event.shiftKey && 'Shift'].filter(Boolean)
+  return normalizeMouseBinding([...modifiers, event.button === 1 ? 'MOUSE_MIDDLE' : `MOUSE_${event.button + 1}`].join('+'))
 }

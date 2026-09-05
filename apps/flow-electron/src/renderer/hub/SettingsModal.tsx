@@ -1,3 +1,4 @@
+import { ShortcutStatus } from './ShortcutStatus'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type {
@@ -154,6 +155,7 @@ function DictationTab({
 }) {
   return (
     <Section title="General">
+      <ShortcutStatus />
       <Row label="Microphone" hint="Choose an input or follow your system default.">
         <MicrophoneSettings deviceId={settings.microphoneDeviceId}
           onChange={microphoneDeviceId => update({ microphoneDeviceId })} />
@@ -161,13 +163,14 @@ function DictationTab({
       <Row label="Keyboard shortcut" hint="Click and press your combo. Esc cancels.">
         <HotkeyInput
           value={settings.hotkey}
-          onChange={next => void update({ hotkey: next })}
+          onChange={next => update({ hotkey: next })}
           placeholder="Click to set hotkey"
         />
       </Row>
       <Row label="Mouse shortcut" hint="An additional way to dictate.">
         <MouseHotkeyInput value={settings.mouseHotkey}
-          onChange={mouseHotkey => update({ mouseHotkey })} />
+          onChange={mouseHotkey => update({ mouseHotkey })}
+          onKeyboardChange={hotkey => update({ hotkey })} />
       </Row>
       <Toggle
         label="Auto-paste at cursor"
