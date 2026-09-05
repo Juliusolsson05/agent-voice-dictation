@@ -1,11 +1,12 @@
 import { app } from 'electron'
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn, type ChildProcessByStdio } from 'node:child_process'
+import type { Readable } from 'node:stream'
 import { createHash } from 'node:crypto'
 import { access, chmod, mkdir, readFile, stat } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { join } from 'node:path'
 
-let child: ChildProcessWithoutNullStreams | null = null
+let child: ChildProcessByStdio<null, Readable, Readable> | null = null
 
 export async function startMacHotkeyHelper(
   binding: string,

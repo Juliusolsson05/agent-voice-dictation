@@ -9,6 +9,24 @@ permissions:
   contents: read
 
 jobs:
+  electron:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/flow-electron/package-lock.json
+      - run: npm ci
+      # Unit tests mock Electron; do not download a GUI runtime on this runner.
+      - run: npm ci --ignore-scripts
+        working-directory: apps/flow-electron
+      - run: npm run build
+      - run: npm run typecheck && npm test && npm run build
+        working-directory: apps/flow-electron
   package:
     uses: Juliusolsson05/agent-code/.github/workflows/reusable-package-ci.yml@04071925e234eb9ec76f0b9c3a4daec58710e551
     with:

@@ -108,6 +108,9 @@ function shortError(error: string | null): string {
   if (error.includes('No API key')) return 'missing key'
   if (error.includes('No audio')) return 'no audio'
   if (error.includes('Permission')) return 'permission'
+  if (error.includes('permission denied')) return 'mic permission'
+  if (error.includes('Microphone unavailable')) return 'mic unavailable'
+  if (error.includes('Microphone')) return 'check mic'
   return 'error'
 }
 

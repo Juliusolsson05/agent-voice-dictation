@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 import { isSpeechProviderSelectable } from 'agent-voice-dictation'
 
 import { DEFAULT_HOTKEY_BINDING } from '../../shared/hotkeyBinding.js'
+import { normalizeMicrophoneDeviceId } from '../../shared/microphone.js'
 
 // Plain settings store. Lives next to secrets.json but UNencrypted on
 // purpose: this file holds non-sensitive preferences (selected provider
@@ -91,6 +92,7 @@ function coerceSettings(value: unknown): AppSettings {
     ...partial,
     v: 1,
     hotkey: migrateLegacyHotkey(partial.hotkey ?? DEFAULT_SETTINGS.hotkey),
+    microphoneDeviceId: normalizeMicrophoneDeviceId(partial.microphoneDeviceId),
     // Provider selection is gated by the package-level support registry, not
     // by whether a client file happens to exist. We have unverified clients in
     // the repo for future work, but old settings files must not keep selecting
