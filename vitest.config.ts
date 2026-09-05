@@ -15,7 +15,7 @@ export default defineConfig({
           // The separate Electron CI job owns these; package-only consumers
           // must still be able to run npm check with only the root npm ci.
           exclude: ['src/**/*.system.test.ts', 'src/**/*.live.test.ts',
-            'apps/flow-electron/src/renderer/**', 'apps/flow-electron/src/main/services/settingsStore.test.ts'],
+            'apps/flow-electron/src/renderer/**', 'apps/flow-electron/src/main/services/*.test.ts'],
         },
       },
       {

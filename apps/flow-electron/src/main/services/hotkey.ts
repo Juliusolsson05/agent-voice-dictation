@@ -7,6 +7,14 @@ import { getHotkeyYieldTargets } from '@main/services/dictationRouting.js'
 
 let onHotkeyFire: (() => void) | null = null
 let onHotkeyRelease: (() => void) | null = null
+let registrationGeneration = 0
+const captureOwners = new Set<number>()
+
+export async function setHotkeyCapture(owner: number, capturing: boolean): Promise<void> {
+  if (capturing) captureOwners.add(owner)
+  else captureOwners.delete(owner)
+  await registerConfiguredHotkey()
+}
 
 export function configureHotkeyHandler(
   onPress: () => void,
@@ -21,12 +29,15 @@ export async function registerConfiguredHotkey(): Promise<{
   ok: boolean
   fallbackUsed: boolean
 }> {
+  const generation = ++registrationGeneration
   const settings = await loadSettings()
   const requested = settings.hotkey.trim()
   const fallback = DEFAULT_SETTINGS.hotkey
+  if (generation !== registrationGeneration) return { accelerator: requested, ok: false, fallbackUsed: false }
 
   globalShortcut.unregisterAll()
   stopMacHotkeyHelper()
+  if (captureOwners.size) return { accelerator: requested, ok: true, fallbackUsed: false }
 
   if (!requested) {
     await saveSettings({ hotkey: fallback })
@@ -49,10 +60,13 @@ export async function registerConfiguredHotkey(): Promise<{
     // let Agent Code handle its own composer dictation, the helper must decide
     // pass-through before it swallows the original key event.
     const yieldTargets = await getHotkeyYieldTargets()
+    if (generation !== registrationGeneration || captureOwners.size) {
+      return { accelerator: requested, ok: false, fallbackUsed: false }
+    }
     const ok = await startMacHotkeyHelper(requested, {
       onPress: onHotkeyFire,
       onRelease: onHotkeyRelease ?? undefined,
-    }, yieldTargets)
+    }, yieldTargets, settings.mouseHotkey)
     return { accelerator: requested, ok, fallbackUsed: false }
   }
 
@@ -64,6 +78,7 @@ export async function registerConfiguredHotkey(): Promise<{
 }
 
 export function unregisterHotkeys(): void {
+  registrationGeneration += 1
   globalShortcut.unregisterAll()
   stopMacHotkeyHelper()
 }

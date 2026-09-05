@@ -24,7 +24,7 @@ import {
   startStreamingDictation,
   stopStreamingDictation,
 } from '@main/services/dictationController.js'
-import { registerConfiguredHotkey } from '@main/services/hotkey.js'
+import { registerConfiguredHotkey, setHotkeyCapture } from '@main/services/hotkey.js'
 import { showStatus, hideStatus } from '@main/windows/status.js'
 import { listDictationIntegrationSummaries } from '@main/integrations/registry.js'
 
@@ -43,7 +43,7 @@ export function registerIpc(): void {
   ipcMain.handle('settings:get', () => loadSettings())
   ipcMain.handle('settings:set', async (_e, patch: Partial<AppSettings>) => {
     let next = await saveSettings(patch)
-    if (typeof patch.hotkey === 'string' || patch.integrationHotkeyYield) {
+    if (typeof patch.hotkey === 'string' || 'mouseHotkey' in patch || patch.integrationHotkeyYield) {
       await registerConfiguredHotkey()
       // registerConfiguredHotkey may repair a malformed accelerator
       // back to the default. Return the repaired settings immediately
@@ -56,6 +56,23 @@ export function registerIpc(): void {
     const next = await resetSettings()
     await registerConfiguredHotkey()
     return next
+  })
+
+  // A renderer may disappear while its shortcut editor owns capture. Restore
+  // global bindings on teardown; losing the window must not disable dictation.
+  const observedCaptureOwners = new Set<number>()
+  ipcMain.handle('hotkey:capture', async (event, enabled: boolean) => {
+    if (typeof enabled !== 'boolean') throw new Error('Expected capture boolean')
+    const sender = event.sender
+    if (!observedCaptureOwners.has(sender.id)) {
+      observedCaptureOwners.add(sender.id)
+      sender.once('destroyed', () => {
+        observedCaptureOwners.delete(sender.id)
+        void setHotkeyCapture(sender.id, false)
+      })
+      sender.on('render-process-gone', () => { void setHotkeyCapture(sender.id, false) })
+    }
+    await setHotkeyCapture(sender.id, enabled)
   })
 
   // ---- Secrets ----

@@ -8,6 +8,7 @@ import type {
 } from '../../preload/index'
 import { HotkeyInput } from './HotkeyInput'
 import { MicrophoneSettings } from './MicrophoneSettings'
+import { MouseHotkeyInput } from './MouseHotkeyInput'
 
 type Props = {
   settings: AppSettings
@@ -157,12 +158,16 @@ function DictationTab({
         <MicrophoneSettings deviceId={settings.microphoneDeviceId}
           onChange={microphoneDeviceId => update({ microphoneDeviceId })} />
       </Row>
-      <Row label="Hotkey" hint="Click and press your combo. Esc cancels.">
+      <Row label="Keyboard shortcut" hint="Click and press your combo. Esc cancels.">
         <HotkeyInput
           value={settings.hotkey}
           onChange={next => void update({ hotkey: next })}
           placeholder="Click to set hotkey"
         />
+      </Row>
+      <Row label="Mouse shortcut" hint="An additional way to dictate.">
+        <MouseHotkeyInput value={settings.mouseHotkey}
+          onChange={mouseHotkey => update({ mouseHotkey })} />
       </Row>
       <Toggle
         label="Auto-paste at cursor"

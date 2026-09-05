@@ -5,6 +5,7 @@ import { isSpeechProviderSelectable } from 'agent-voice-dictation'
 
 import { DEFAULT_HOTKEY_BINDING } from '../../shared/hotkeyBinding.js'
 import { normalizeMicrophoneDeviceId } from '../../shared/microphone.js'
+import { normalizeMouseBinding } from '../../shared/mouseBinding.js'
 
 // Plain settings store. Lives next to secrets.json but UNencrypted on
 // purpose: this file holds non-sensitive preferences (selected provider
@@ -31,6 +32,7 @@ export type AppSettings = {
 
   // Dictation tab
   hotkey: string                 // Mac helper binding string; Electron accelerator only off macOS
+  mouseHotkey: string | null     // An additional trigger; never replaces the keyboard shortcut.
   microphoneDeviceId: string | null
   language: string               // V1 is intentionally English-only.
   autoPasteAtCursor: boolean
@@ -60,6 +62,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // in shared/hotkeyBinding so the renderer's "Default" button can
   // reference the same value without going through IPC.
   hotkey: DEFAULT_HOTKEY_BINDING,
+  mouseHotkey: null,
   microphoneDeviceId: null,
   language: 'en',
   autoPasteAtCursor: true,
@@ -92,6 +95,7 @@ function coerceSettings(value: unknown): AppSettings {
     ...partial,
     v: 1,
     hotkey: migrateLegacyHotkey(partial.hotkey ?? DEFAULT_SETTINGS.hotkey),
+    mouseHotkey: readMouseBinding(partial.mouseHotkey),
     microphoneDeviceId: normalizeMicrophoneDeviceId(partial.microphoneDeviceId),
     // Provider selection is gated by the package-level support registry, not
     // by whether a client file happens to exist. We have unverified clients in
@@ -130,6 +134,11 @@ function isSupportedSttProvider(value: unknown): value is SttProviderId {
     && isSpeechProviderSelectable(value as SttProviderId)
 }
 
+function readMouseBinding(value: unknown): string | null {
+  // A malformed optional mouse preference must not reset keyboard/audio settings.
+  try { return normalizeMouseBinding(value) } catch { return null }
+}
+
 // One-shot migration for the bracket-key rename. Earlier builds stored
 // "SQUARE BRACKET OPEN" / "SQUARE BRACKET CLOSE" in the hotkey string,
 // and the names were swapped relative to the actual key the user chose:
@@ -161,6 +170,7 @@ export async function loadSettings(): Promise<AppSettings> {
 }
 
 export async function saveSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
+  if ('mouseHotkey' in patch) normalizeMouseBinding(patch.mouseHotkey)
   const current = await loadSettings()
   const next = coerceSettings({ ...current, ...patch })
   cached = next
