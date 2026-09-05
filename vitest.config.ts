@@ -11,7 +11,11 @@ export default defineConfig({
             'src/**/*.test.ts',
             'apps/flow-electron/src/**/*.test.ts',
           ],
-          exclude: ['src/**/*.system.test.ts', 'src/**/*.live.test.ts'],
+          // Renderer and main-process tests need the nested Electron install.
+          // The separate Electron CI job owns these; package-only consumers
+          // must still be able to run npm check with only the root npm ci.
+          exclude: ['src/**/*.system.test.ts', 'src/**/*.live.test.ts',
+            'apps/flow-electron/src/renderer/**', 'apps/flow-electron/src/main/services/settingsStore.test.ts'],
         },
       },
       {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { MicPill } from './MicPill'
 import { playCloseSound, playOpenSound } from './sounds'
+import { microphoneErrorMessage, openMicrophone } from '../../shared/microphone'
 
 // The Status window's job:
 //   1. Listen for `hotkey:fired` from main.
@@ -13,8 +14,8 @@ import { playCloseSound, playOpenSound } from './sounds'
 // Mic capture uses the package's recorder helpers indirectly: we use
 // MediaRecorder + AudioContext directly here because the package's
 // browser recorder is for browser environments and we want the Status
-// window's recording lifecycle to be self-contained (the Hub never
-// records, only reads recents).
+// window's dictation lifecycle to be self-contained (the Hub only opens
+// a local, explicitly requested microphone test and never uploads its audio).
 //
 // Why we record in the renderer and run STT in main:
 //   - getUserMedia is only available in renderer (Web APIs).
@@ -183,13 +184,14 @@ export function App() {
     hotkeyDownAtRef.current ||= Date.now()
     lifecycleRef.current = 'starting'
     pendingStopRef.current = false
+    const recordingGeneration = ++recordingGenerationRef.current
     try {
-      const recordingGeneration = ++recordingGenerationRef.current
       const startRequestedAt = Date.now()
       console.log('[status:trace] start:begin', {
         hotkeyToStartMs: startRequestedAt - hotkeyDownAtRef.current,
       })
       const settings = await window.flow.settings.get()
+      if (recordingGeneration !== recordingGenerationRef.current) return
       setHandsFree(settings.handsFreeMode)
       soundsEnabledRef.current = settings.playSounds
       console.log('[status:trace] settings:loaded', {
@@ -198,7 +200,13 @@ export function App() {
         playSounds: settings.playSounds,
       })
       const gumStartedAt = Date.now()
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      // Read once per recording: changing Settings must not cut a sentence in
+      // half or mix two devices into the same streaming container.
+      const stream = await openMicrophone(navigator.mediaDevices, settings.microphoneDeviceId)
+      if (recordingGeneration !== recordingGenerationRef.current) {
+        stream.getTracks().forEach(track => track.stop())
+        return
+      }
       console.log('[status:trace] get-user-media:done', {
         ms: Date.now() - gumStartedAt,
         tracks: stream.getAudioTracks().map(track => ({
@@ -261,11 +269,13 @@ export function App() {
         }
       })
       rec.addEventListener('error', evt => {
+        if (recordingGeneration !== recordingGenerationRef.current) return
         // eslint-disable-next-line no-console
         console.error('[status] recorder error', evt.error)
         showTransientError(evt.error?.message ?? 'Recorder failed', evt.error)
       })
       rec.addEventListener('stop', async () => {
+        if (recordingGeneration !== recordingGenerationRef.current) return
         // Snapshot real audio duration BEFORE we tear anything down. This is
         // the recorder's MediaRecorder.start → onstop interval, accurate to
         // within ~30ms of encoder flush. The streaming provider in main can
@@ -406,7 +416,8 @@ export function App() {
         window.setTimeout(() => stopRecording(), 0)
       }
     } catch (err) {
-      const message = (err as Error)?.message ?? String(err)
+      if (recordingGeneration !== recordingGenerationRef.current) return
+      const message = microphoneErrorMessage(err)
       // eslint-disable-next-line no-console
       console.error('[status] start recording failed', err)
       streamRef.current?.getTracks().forEach(t => t.stop())
@@ -490,6 +501,24 @@ export function App() {
       void window.flow.status.hide()
     }
   }, [resetToIdle, stopMeter])
+
+  useEffect(() => () => {
+    // A permission prompt can outlive this renderer. Invalidate acquisition
+    // before stopping resources so late grants and recorder callbacks cannot
+    // reopen capture or start a provider session after unmount.
+    recordingGenerationRef.current += 1
+    const recorder = recRef.current
+    if (recorder && recorder.state !== 'inactive') recorder.stop()
+    streamRef.current?.getTracks().forEach(track => track.stop())
+    streamRef.current = null
+    const sessionId = streamSessionIdRef.current
+    streamSessionIdRef.current = null
+    if (sessionId) void window.flow.dictation.streamCancel(sessionId).catch(() => {})
+    if (errorResetTimerRef.current !== null) window.clearTimeout(errorResetTimerRef.current)
+    queuedAudioChunksRef.current = []
+    pendingChunkSendsRef.current = []
+    stopMeter()
+  }, [stopMeter])
 
   // macOS default is true hold-to-talk: the native helper emits explicit
   // press/release events because Electron's globalShortcut cannot represent the

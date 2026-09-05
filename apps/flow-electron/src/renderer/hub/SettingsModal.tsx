@@ -7,6 +7,7 @@ import type {
   SttProviderId,
 } from '../../preload/index'
 import { HotkeyInput } from './HotkeyInput'
+import { MicrophoneSettings } from './MicrophoneSettings'
 
 type Props = {
   settings: AppSettings
@@ -132,7 +133,8 @@ function TabButton({
         color: active ? 'var(--ink)' : 'var(--ink-dim)',
         fontSize: 12,
         transition: 'background var(--motion-fast) ease, border-color var(--motion-fast) ease, color var(--motion-fast) ease',
-        WebkitAppRegion: 'no-drag',
+        // Electron extends CSS with drag regions; csstype only models web CSS.
+        ...({ WebkitAppRegion: 'no-drag' } as React.CSSProperties),
       }}
     >
       {children}
@@ -151,6 +153,10 @@ function DictationTab({
 }) {
   return (
     <Section title="General">
+      <Row label="Microphone" hint="Choose an input or follow your system default.">
+        <MicrophoneSettings deviceId={settings.microphoneDeviceId}
+          onChange={microphoneDeviceId => update({ microphoneDeviceId })} />
+      </Row>
       <Row label="Hotkey" hint="Click and press your combo. Esc cancels.">
         <HotkeyInput
           value={settings.hotkey}
@@ -454,7 +460,9 @@ function Row({
   return (
     <div style={{
       display: 'grid',
-      gridTemplateColumns: '180px 1fr',
+      // Long OS device labels must shrink inside the modal rather than force
+      // its controls beyond the scroll pane's right edge.
+      gridTemplateColumns: '180px minmax(0, 1fr)',
       gap: 16,
       alignItems: 'start',
       padding: '13px 14px',
@@ -465,7 +473,7 @@ function Row({
         <div style={{ color: 'var(--ink)', fontSize: 12.5 }}>{label}</div>
         {hint && <div style={{ color: 'var(--ink-mute)', fontSize: 11, marginTop: 2 }}>{hint}</div>}
       </div>
-      <div>{children}</div>
+      <div style={{ minWidth: 0 }}>{children}</div>
     </div>
   )
 }
