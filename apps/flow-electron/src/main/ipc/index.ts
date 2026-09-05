@@ -1,4 +1,8 @@
 import { ipcMain, BrowserWindow, shell, app } from 'electron'
+import { join } from 'node:path'
+import { PhoneMicServer } from '../phone/server'
+import { getStatusWindow } from '../windows/status'
+import { PHONE_MIC, type PhoneSignal } from '../../shared/phoneMic'
 import { STT_PROVIDER_SUPPORT } from 'agent-voice-dictation'
 
 import {
@@ -40,6 +44,36 @@ import { listDictationIntegrationSummaries } from '@main/integrations/registry.j
 // need to leave the main process.
 
 export function registerIpc(): void {
+  const phone = new PhoneMicServer(join(app.getPath('userData'), 'phone-microphone'),
+    status => broadcastDictationEvent('phone:status', status),
+    event => getStatusWindow()?.webContents.send('phone:signal', event))
+  app.on('will-quit', () => phone.close())
+  // The network service never exposes these methods: only our local renderers
+  // can start the server, observe pairing links or control dictation.
+  ipcMain.handle('phone:start', () => phone.start())
+  ipcMain.handle('phone:stop', () => phone.stop())
+  ipcMain.handle('phone:get', () => phone.snapshot())
+  ipcMain.handle('phone:signal', (event, id: string, signal: PhoneSignal) => {
+    if (event.sender !== getStatusWindow()?.webContents) return
+    phone.send(id, signal)
+  })
+  ipcMain.handle('phone:receiver-state', (event, id: string, ready: boolean, level: number, error?: string) => {
+    if (event.sender !== getStatusWindow()?.webContents) return
+    phone.receiverState(id, ready, level, error)
+  })
+  ipcMain.handle('phone:dictate', async () => {
+    if ((await loadSettings()).microphoneDeviceId !== PHONE_MIC) throw new Error('Select Phone over Wi-Fi first.')
+    if (!phone.snapshot().ready) throw new Error('Connect the phone microphone first.')
+    showStatus()
+    broadcastDictationEvent('hotkey:fired')
+  })
+  // A renderer crash invalidates its receiving peer. Requiring a fresh phone
+  // handshake is safer than reporting a connection whose audio sink vanished.
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('render-process-gone', () => {
+      if (contents === getStatusWindow()?.webContents) phone.disconnect()
+    })
+  })
   // ---- Settings ----
   ipcMain.handle('settings:get', () => loadSettings())
   ipcMain.handle('settings:set', async (_e, patch: Partial<AppSettings>) => {

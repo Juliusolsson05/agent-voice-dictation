@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { PhoneStatus, PhoneEvent, PhoneSignal } from '../shared/phoneMic'
 
 import type { AppSettings, SttProviderId } from '@main/services/settingsStore.js'
 import type { DictationRecord } from '@main/services/recentsStore.js'
@@ -18,6 +19,14 @@ import type { SpeechProviderSupportMap } from 'agent-voice-dictation'
 // the plaintext value. This keeps the encrypted store meaningful.
 
 export type FlowApi = {
+  phone: {
+    start(): Promise<PhoneStatus>; stop(): Promise<PhoneStatus>; get(): Promise<PhoneStatus>
+    signal(id: string, signal: PhoneSignal): Promise<void>
+    receiverState(id: string, ready: boolean, level: number, error?: string): Promise<void>
+    dictate(): Promise<void>
+    onSignal(handler: (event: PhoneEvent) => void): () => void
+    onStatus(handler: (status: PhoneStatus) => void): () => void
+  }
   settings: {
     get(): Promise<AppSettings>
     set(patch: Partial<AppSettings>): Promise<AppSettings>
@@ -71,6 +80,14 @@ export type FlowApi = {
 }
 
 const api: FlowApi = {
+  phone: {
+    start: () => ipcRenderer.invoke('phone:start'), stop: () => ipcRenderer.invoke('phone:stop'), get: () => ipcRenderer.invoke('phone:get'),
+    signal: (id, signal) => ipcRenderer.invoke('phone:signal', id, signal),
+    receiverState: (id, ready, level, error) => ipcRenderer.invoke('phone:receiver-state', id, ready, level, error),
+    dictate: () => ipcRenderer.invoke('phone:dictate'),
+    onSignal(handler) { const listener = (_e: unknown, event: PhoneEvent) => handler(event); ipcRenderer.on('phone:signal', listener); return () => ipcRenderer.off('phone:signal', listener) },
+    onStatus(handler) { const listener = (_e: unknown, status: PhoneStatus) => handler(status); ipcRenderer.on('phone:status', listener); return () => ipcRenderer.off('phone:status', listener) },
+  },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     set: patch => ipcRenderer.invoke('settings:set', patch),

@@ -2,6 +2,7 @@ import React from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { App } from './App'
+import { PhoneReceiver } from '../phone/receiver'
 
 vi.mock('./MicPill', () => ({ MicPill: (props: unknown) => React.createElement('div', props as object) }))
 vi.mock('./sounds', () => ({ playOpenSound: vi.fn(), playCloseSound: vi.fn() }))
@@ -26,6 +27,7 @@ beforeEach(() => {
   vi.stubGlobal('window', {
     setTimeout: vi.fn().mockReturnValue(1), clearTimeout: vi.fn(),
     flow: {
+      phone: { onSignal: vi.fn(() => () => {}), receiverState: vi.fn().mockResolvedValue(undefined) },
       settings: { get: vi.fn(async () => ({ microphoneDeviceId: selected, playSounds: false, handsFreeMode: false })) },
       dictation: { streamStart, streamCancel },
       status: { hide: vi.fn().mockResolvedValue(undefined) },
@@ -101,6 +103,26 @@ it('stops an active recording and cancels its provider session on unmount', asyn
   await mount()
   await start()
   act(() => view.unmount())
+  expect(stopTrack).toHaveBeenCalledOnce()
+  expect(streamCancel).toHaveBeenCalledWith('session')
+})
+
+it('does not open a local microphone or provider when the selected LAN phone is disconnected', async () => {
+  selected = 'agent-voice:lan-phone'
+  await mount(); await start()
+  expect(getUserMedia).not.toHaveBeenCalled()
+  expect(streamStart).not.toHaveBeenCalled()
+  expect(view.root.findByType('div').props.error).toContain('Phone microphone is not ready')
+})
+
+it('uses the connected phone stream with the existing provider pipeline and releases only its borrowed track', async () => {
+  selected = 'agent-voice:lan-phone'
+  const remoteTrack = { label: 'LAN phone', stop: stopTrack }
+  vi.spyOn(PhoneReceiver.prototype, 'open').mockReturnValue({ getTracks: () => [remoteTrack], getAudioTracks: () => [remoteTrack] } as unknown as MediaStream)
+  await mount(); await start()
+  expect(getUserMedia).not.toHaveBeenCalled()
+  expect(streamStart).toHaveBeenCalledOnce()
+  await act(async () => { view.root.findByType('div').props.onCancel() })
   expect(stopTrack).toHaveBeenCalledOnce()
   expect(streamCancel).toHaveBeenCalledWith('session')
 })

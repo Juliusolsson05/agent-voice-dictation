@@ -149,6 +149,8 @@ export async function createStatusWindow(): Promise<BrowserWindow> {
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
+      // Phone WebRTC and its health meter must run while the pill is hidden.
+      backgroundThrottling: false,
     },
   })
   status.setAlwaysOnTop(true, 'screen-saver')
