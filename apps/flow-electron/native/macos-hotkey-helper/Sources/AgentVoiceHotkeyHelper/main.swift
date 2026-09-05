@@ -8,6 +8,15 @@ import Foundation
 let binding = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : ""
 let yieldConfigJson = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "{}"
 let mouseBinding = CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : ""
+let yieldConfig = (try? JSONDecoder().decode(YieldConfig.self, from: Data(yieldConfigJson.utf8)))
+  ?? YieldConfig(frontmostBundleIds: [], frontmostAppNames: [])
+
+// The main process uses the exact same native focus policy immediately before
+// auto-paste. This mode never installs an event tap or prompts for permissions.
+if binding == "--query-yield" {
+  print(shouldYieldForTextFocus(yieldConfig, forPaste: true) ? "true" : "false")
+  exit(0)
+}
 let definitions: [BindingDefinition]
 do {
   definitions = try ([binding] + (mouseBinding.isEmpty ? [] : [mouseBinding])).map(BindingDefinition.init)
@@ -17,24 +26,6 @@ do {
 }
 var state = BindingState(bindings: definitions)
 var eventTap: CFMachPort?
-
-struct YieldConfig: Decodable {
-  let frontmostBundleIds: [String]?
-  let frontmostAppNames: [String]?
-}
-
-// The helper receives generic pass-through targets from Electron rather than
-// importing app-specific knowledge. That separation is important because this
-// process runs below the product layer: its only job is to observe the native
-// keyboard stream and decide whether Flow should consume or pass through the
-// matching event. "Agent Code" is a registry entry in Electron, not a concept
-// baked into this Swift helper.
-let yieldConfig = (try? JSONDecoder().decode(
-  YieldConfig.self,
-  from: Data(yieldConfigJson.utf8)
-)) ?? YieldConfig(frontmostBundleIds: [], frontmostAppNames: [])
-let yieldBundleIds = Set(yieldConfig.frontmostBundleIds ?? [])
-let yieldAppNames = Set(yieldConfig.frontmostAppNames ?? [])
 
 func activeModifiers(_ flags: CGEventFlags) -> Set<String> {
   var result = Set<String>()
@@ -47,31 +38,11 @@ func activeModifiers(_ flags: CGEventFlags) -> Set<String> {
 }
 
 func shouldYieldToFrontmostApp() -> Bool {
-  // We check frontmost app at the exact moment the hotkey matches. Polling or
-  // caching this in Electron would race focus changes between applications,
-  // and deciding after emit("hotkey-down") would be too late because returning
-  // nil from the event tap is what prevents the focused app from seeing the
-  // original press. Returning the original event here gives Agent Code (or any
-  // future integration target) first chance to handle its own shortcut.
-  //
-  // Cost note: this runs INSIDE the CGEvent tap callback, which the system will
-  // disable outright if a callback is slow -- that is what the
-  // .tapDisabledByTimeout branch below re-enables. NSWorkspace's frontmost-app
-  // property is a cached local lookup rather than a cross-process query, and it
-  // only runs on the two hotkey-down edges (never per keystroke), so the tap
-  // budget is not at risk in practice. It is unmeasured, though: if yield ever
-  // correlates with the tap going dead, measure HERE first before assuming the
-  // re-enable path is at fault.
-  guard let app = NSWorkspace.shared.frontmostApplication else { return false }
-  if let bundleId = app.bundleIdentifier, yieldBundleIds.contains(bundleId) {
-    return true
-  }
-  if let name = app.localizedName, yieldAppNames.contains(name) {
-    return true
-  }
-  return false
+  // Decide before consuming the event or waking the pill. Frontmost identity
+  // alone is insufficient: an Agent Code sidebar/window may be active while
+  // the user is not typing in its editor.
+  return shouldYieldForTextFocus(yieldConfig)
 }
-
 
 func emit(_ type: String) {
   // Serialize rather than interpolate arbitrary stored settings into JSON.

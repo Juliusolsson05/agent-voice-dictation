@@ -63,3 +63,13 @@ var extendedState = BindingState(bindings: [extended])
 assert(extendedState.handle(BindingInput(type: .otherMouseDown, mouseButton: 6, modifiers: ["Shift"])).transition == "hotkey-down")
 assert(extendedState.handle(BindingInput(type: .otherMouseUp, mouseButton: 6)).transition == "hotkey-up")
 assert((try? BindingDefinition("MOUSE_33")) == nil)
+
+// Role/writability gates protect the distinction between a cursor in an editor
+// and merely viewing Agent Code. Focus movement never changes held-key ownership.
+assert(isEditableTextRole("AXTextArea", enabled: true, valueSettable: true))
+assert(isEditableTextRole("AXTextField", enabled: true, valueSettable: true))
+assert(!isEditableTextRole("AXTextArea", enabled: true, valueSettable: false))
+assert(!isEditableTextRole("AXButton", enabled: true, valueSettable: true))
+assert(!isEditableTextRole("AXWebArea", enabled: true, valueSettable: true))
+assert(!isEditableTextRole("AXTextField", enabled: false, valueSettable: true))
+print("Focused text-input routing contracts passed.")

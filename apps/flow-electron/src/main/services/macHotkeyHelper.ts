@@ -118,7 +118,7 @@ export function stopMacHotkeyHelper(): void {
   current?.kill()
 }
 
-async function ensureHelperBinary(): Promise<string> {
+export async function ensureHelperBinary(): Promise<string> {
   // We compile from checked-in Swift source instead of depending on a
   // third-party key listener package. The earlier npm wrapper failed
   // because its hidden helper path, chmod behavior, and binding names
@@ -127,8 +127,16 @@ async function ensureHelperBinary(): Promise<string> {
   // command line tools, and in packaging we can later move this same
   // source into a deterministic build step without changing the app's
   // runtime protocol.
+  if (app.isPackaged) {
+    // Signed installed builds carry a precompiled helper inside the app's code
+    // boundary. Never replace it with a mutable user-data executable: that
+    // breaks code identity and makes Accessibility grants difficult to repair.
+    const bundled = join(app.getAppPath(), 'native/AgentVoiceHotkeyHelper')
+    await access(bundled, constants.X_OK)
+    return bundled
+  }
   const directory = join(app.getAppPath(), 'native/macos-hotkey-helper/Sources/AgentVoiceHotkeyHelper')
-  const sources = ['main.swift', 'BindingState.swift'].map(file => join(directory, file))
+  const sources = ['main.swift', 'BindingState.swift', 'FocusPolicy.swift'].map(file => join(directory, file))
   const bytes = await Promise.all(sources.map(source => readFile(source)))
   const hash = createHash('sha256').update(Buffer.concat(bytes)).digest('hex').slice(0, 12)
   const dir = join(app.getPath('userData'), 'native-helpers')

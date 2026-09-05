@@ -229,8 +229,8 @@ function IntegrationsTab({
         return (
           <Toggle
             key={integration.id}
-            label={`Yield to ${integration.label}`}
-            hint="When this app is focused, Flow lets it handle the dictation hotkey instead of showing the floating pill."
+            label={`Use ${integration.label} dictation in its text fields`}
+            hint="Only when an editable text field has keyboard focus in this app. Agent Voice stays quiet there and skips automatic paste into that field. Hovering over the window has no effect."
             value={enabled}
             onChange={value => void update({
               integrationHotkeyYield: {

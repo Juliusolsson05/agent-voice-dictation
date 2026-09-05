@@ -1,4 +1,5 @@
 import { clipboard } from 'electron'
+import { allowsAutomaticPaste } from './focusRouting'
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 
@@ -295,7 +296,7 @@ export async function runDictation(input: DictationInput): Promise<DictationOutc
   clipboard.writeText(finalText)
   const pasteStartedAt = Date.now()
   let pasted = false
-  if (settings.autoPasteAtCursor) {
+  if (settings.autoPasteAtCursor && await allowsAutomaticPaste()) {
     await pasteAtCursor()
     pasted = process.platform === 'darwin'
   }
@@ -379,7 +380,7 @@ async function finalizeDictationText({
   clipboard.writeText(finalText)
   const pasteStartedAt = Date.now()
   let pasted = false
-  if (settings.autoPasteAtCursor) {
+  if (settings.autoPasteAtCursor && await allowsAutomaticPaste()) {
     await pasteAtCursor()
     pasted = process.platform === 'darwin'
   }

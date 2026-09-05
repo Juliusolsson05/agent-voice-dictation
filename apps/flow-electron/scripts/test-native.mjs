@@ -9,7 +9,7 @@ try {
   const sources = resolve('native/macos-hotkey-helper/Sources/AgentVoiceHotkeyHelper')
   const env = { ...process.env, CLANG_MODULE_CACHE_PATH: join(dir, 'module-cache') }
   const compile = (main, output) => execFileSync('/usr/bin/xcrun',
-    ['swiftc', join(sources, 'BindingState.swift'), main, '-o', output],
+    ['swiftc', join(sources, 'BindingState.swift'), join(sources, 'FocusPolicy.swift'), main, '-o', output],
     { env, stdio: 'inherit', timeout: 120000 })
   compile(resolve('native/macos-hotkey-helper/Tests/main.swift'), join(dir, 'tests'))
   execFileSync(join(dir, 'tests'), { stdio: 'inherit', timeout: 10000 })
