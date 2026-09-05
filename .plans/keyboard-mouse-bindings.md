@@ -15,3 +15,7 @@ Stack on feat/microphone-selection (PR #38), preserve the original checkout, and
 Native AVFoundation discovery and macOS Sound currently expose only the built-in input, with Mac Wi-Fi/Bluetooth on and the user confirming the nearby locked phone has Continuity Camera enabled. USB is not required for normal Continuity microphone use. Keep pairing/discovery under macOS control.
 
 Add an explicit automatic iPhone choice, resolve current device IDs for every test/dictation, and display availability refreshed on device changes and while settings are visible. Match exposed iPhone/Continuity labels conservatively; ambiguous devices require explicit selection. Fail without opening a different input. Preserve cancellation and no background recording. Verify reconnect/absence/ambiguity in tests, then package both input features together and report physical connection separately.
+
+## Reported non-working middle-click follow-up
+
+The user reports middle-click does not activate dictation and requests direct input capture. Add press-to-record capture for mouse buttons (including extended buttons) and keyboard events, preserving both slots. Pause the native tap during capture and resume after release to avoid swallowing the event or leaving an unmatched release. Expose actual helper readiness/failure and last received trigger, with retry. Show failures independently from microphone availability; never silently change the user's chosen mic. Test and install the revised package, then verify the actual listener state through the UI.
