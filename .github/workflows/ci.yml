@@ -12,8 +12,8 @@ jobs:
   native:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - run: npm run test:native
@@ -21,8 +21,8 @@ jobs:
   electron:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
@@ -37,6 +37,6 @@ jobs:
       - run: npm run typecheck && npm test && npm run build
         working-directory: apps/flow-electron
   package:
-    uses: Juliusolsson05/agent-code/.github/workflows/reusable-package-ci.yml@04071925e234eb9ec76f0b9c3a4daec58710e551
+    uses: Juliusolsson05/agent-code/.github/workflows/reusable-package-ci.yml@1bcba63719b71da389a83243feba4fbe22461e2b
     with:
       node-versions: '["20.19.0", "24"]'
